@@ -1,21 +1,27 @@
 using ConcreteStructs
+using ComponentArrays
+using ForwardDiff
 using GXBeam, LinearAlgebra
 using OpenMDAO: AbstractExplicitComp
-using Plots
 
 @concrete struct SolverComp <: AbstractExplicitComp
     rho
     E
     nu
     points
+    apply_nonlinear_forwarddiffable!
+    x
+    y
+    J
+    forwarddiff_config
 end
 
 function create_assembly(; points, Tp, Np, omega, chord, twist, A, Iyy, Izz, Iyz, rho, E, nu)
 
     x = [points[i, 1][1] for i = 1:length(points)]
-    nelem = length(points)-1
-    start = 1:nelem
-    stop = 2:nelem+1
+    nelems = length(points)-1
+    start = 1:nelems
+    stop = 2:nelems+1
 
     G = E/(2*(1 + nu))
 
@@ -30,10 +36,10 @@ function create_assembly(; points, Tp, Np, omega, chord, twist, A, Iyy, Izz, Iyz
     Ay = A./ky
     Az = A./kz
 
-    stiffness = fill(zeros(6,6), nelem)
-    mass = fill(zeros(6, 6), nelem)
+    stiffness = fill(zeros(6,6), nelems)
+    mass = fill(zeros(6, 6), nelems)
 
-    for i in 1:nelem
+    for i in 1:nelems
         elem_stiff = [[E*A[i], 0,       0,       0,  0,       0     ]#=
                     =#[0,      G*Ay[i], 0,       0,  0,       0     ]#=
                     =#[0,      0,       G*Az[i], 0,  0,       0     ]#=
@@ -79,7 +85,7 @@ function create_assembly(; points, Tp, Np, omega, chord, twist, A, Iyy, Izz, Iyz
 
     # define distributed loads
     distributed_loads = Dict()
-    for i = 1:nelem
+    for i = 1:nelems
         distributed_loads[2*i-1] = DistributedLoads(assembly, i; s1=x[i], s2=x[i+1], fy = (s) -> interp_aero_force(s, x, Tp))
         distributed_loads[2*i] = DistributedLoads(assembly, i; s1=x[i], s2=x[i+1], fz = (s) -> interp_aero_force(s, x, Np))
     end
@@ -95,56 +101,104 @@ end
 function SolverComp(; rho, E, nu, x)
 
     # create the points
+    nnodes = length(x)
+    nelems = nnodes-1
     y = zero(x)
     z = zero(x)
-    points = [[x[i], y[i], z[i]] for i = 1:length(x)]
+    points = [[x[i], y[i], z[i]] for i = 1:nnodes]
 
-    return SolverComp(rho, E, nu, points)
+    function apply_nonlinear_forwarddiffable!(y, x)
+        T = eltype(x)
+
+        # Unpack the inputs.
+        omega = x[:omega]
+        Np = x[:Np]
+        Tp = x[:Tp]
+        chord = x[:chord]
+        twist = x[:twist]
+        A = x[:A]
+        Iyy = x[:Iyy]
+        Izz = x[:Izz]
+        Iyz = x[:Iyz]
+
+        assembly, system = create_assembly(points=self.points, omega=omega,
+                                           Tp=Tp, Np=Np, chord=chord, twist=twist,
+                                           A=A, Iyy=Iyy, Izz=Izz, Iyz=Iyz,
+                                           rho=rho, E=E, nu=nu)
+
+        bcs = Dict(
+            1 => PrescribedConditions(ux=0, uy=0, uz=0, theta_x=0, theta_y=0, theta_z=0)
+        )
+        state = AssemblyState(system, assembly; prescribed_conditions=bcs)
+
+        # Put the outputs in the output array.
+        y[:Fx] .= [state.elements[ielem].F[1] for ielem = 1:length(assembly.elements)]
+        y[:My] .= [state.elements[ielem].M[2] for ielem = 1:length(assembly.elements)]
+        y[:Mz] .= [state.elements[ielem].M[3] for ielem = 1:length(assembly.elements)]
+
+        return nothing
+    end
+
+    # Initialize the input and output vectors needed by ForwardDiff.jl. (The
+    # ForwardDiff.jl inputs include phi, but that's an OpenMDAO output.)
+    X = ComponentArray(
+        omega=0.0, Np=zeros(Float64, nnodes), Tp=zeros(Float64, nnodes),
+        chord=zeros(Float64, nelems), twist=zeros(Float64, nelems),
+        A=zeros(Float64, nelems), Iyy=zeros(Float64, nelems),
+        Izz=zeros(Float64, nelems), Iyz=zeros(Float64, nelems))
+    Y = ComponentArray(
+        Fx=zeros(Float64, nelems), My=zeros(Float64, nelems), Mz=zeros(Float64, nelems))
+    J = Y.*X'
+
+    # Get the JacobianConfig object, which we'll reuse each time when calling
+    # the ForwardDiff.jacobian! function (apparently good for efficiency).
+    config = ForwardDiff.JacobianConfig(apply_nonlinear_forwarddiffable!, Y, X)
+
+    return SolverComp(rho, E, nu, points, apply_nonlinear_forwarddiffable!, X, Y, J, config)
 end
 
 function OpenMDAO.setup(self::SolverComp)
 
-    nelem = length(self.points)-1
+    nelems = length(self.points)-1
 
     # Declare the OpenMDAO inputs.
     input_data = Vector{VarData}()
     push!(input_data, VarData("omega", shape=1, units="rad/s"))
-    push!(input_data, VarData("Tp", shape=nelem+1, units="N/m"))
-    push!(input_data, VarData("Np", shape=nelem+1, units="N/m"))
-    push!(input_data, VarData("chord", shape=nelem, units="m"))
-    push!(input_data, VarData("twist", shape=nelem, units="rad"))
-    push!(input_data, VarData("A", shape=nelem, units="m**2"))
-    push!(input_data, VarData("Iyy", shape=nelem, units="m**4"))
-    push!(input_data, VarData("Izz", shape=nelem, units="m**4"))
-    push!(input_data, VarData("Iyz", shape=nelem, units="m**4"))
+    push!(input_data, VarData("Tp", shape=nelems+1, units="N/m"))
+    push!(input_data, VarData("Np", shape=nelems+1, units="N/m"))
+    push!(input_data, VarData("chord", shape=nelems, units="m"))
+    push!(input_data, VarData("twist", shape=nelems, units="rad"))
+    push!(input_data, VarData("A", shape=nelems, units="m**2"))
+    push!(input_data, VarData("Iyy", shape=nelems, units="m**4"))
+    push!(input_data, VarData("Izz", shape=nelems, units="m**4"))
+    push!(input_data, VarData("Iyz", shape=nelems, units="m**4"))
 
     # Declare the OpenMDAO outputs.
     output_data = Vector{VarData}()
-    push!(output_data, VarData("Fx", shape=shape=nelem, units="N/m"))
-    push!(output_data, VarData("My", shape=shape=nelem, units="N/m"))
-    push!(output_data, VarData("Mz", shape=shape=nelem, units="N/m"))
+    push!(output_data, VarData("Fx", shape=shape=nelems, units="N/m"))
+    push!(output_data, VarData("My", shape=shape=nelems, units="N/m"))
+    push!(output_data, VarData("Mz", shape=shape=nelems, units="N/m"))
 
     # Declare the OpenMDAO partial derivatives.
     partials_data = Vector{PartialsData}()
     push!(partials_data, PartialsData("Fx", "omega"))
     push!(partials_data, PartialsData("Fx", "A"))
-    # push!(partials_data, PartialsData("Fx", "Iyy"))
-    # push!(partials_data, PartialsData("Fx", "Izz"))
-    # push!(partials_data, PartialsData("Fx", "Iyz"))
-    # push!(partials_data, PartialsData("My", "A"))
-    # push!(partials_data, PartialsData("My", "Iyy"))
-    # push!(partials_data, PartialsData("My", "Izz"))
-    # push!(partials_data, PartialsData("My", "Iyz"))
-    # push!(partials_data, PartialsData("My", "omega"))
+
+    push!(partials_data, PartialsData("My", "omega"))
     push!(partials_data, PartialsData("My", "Tp"))
     push!(partials_data, PartialsData("My", "Np"))
+    push!(partials_data, PartialsData("My", "A"))
+    push!(partials_data, PartialsData("My", "Iyy"))
+    push!(partials_data, PartialsData("My", "Izz"))
+    push!(partials_data, PartialsData("My", "Iyz"))
+
+    push!(partials_data, PartialsData("Mz", "omega"))
     push!(partials_data, PartialsData("Mz", "Tp"))
     push!(partials_data, PartialsData("Mz", "Np"))
-    # push!(partials_data, PartialsData("Mz", "A"))
-    # push!(partials_data, PartialsData("Mz", "Iyy"))
-    # push!(partials_data, PartialsData("Mz", "Izz"))
-    # push!(partials_data, PartialsData("Mz", "Iyz"))
-    # push!(partials_data, PartialsData("Mz", "omega"))
+    push!(partials_data, PartialsData("Mz", "A"))
+    push!(partials_data, PartialsData("Mz", "Iyy"))
+    push!(partials_data, PartialsData("Mz", "Izz"))
+    push!(partials_data, PartialsData("Mz", "Iyz"))
 
     return input_data, output_data, partials_data
 end
@@ -199,111 +253,67 @@ function OpenMDAO.compute_partials!(self::SolverComp, inputs, partials)
     Iyy = inputs["Iyy"]
     Izz = inputs["Izz"]
     Iyz = inputs["Iyz"]
+    nelems = length(A)
+    nnodes = nelems+1
 
+    x_ce = ComponentArray(omega=omega, Np=Np, Tp=Tp, chord=chord, twist=twist, A=A, Iyy=Iyy, Izz=Izz, Iyz=Iyz)
+
+    # Working arrays and configuration for ForwardDiff's Jacobian routine.
+    x = self.x
+    y = self.y
+    J = self.J
+    config = self.forwarddiff_config
+
+    x[:omega] = omega
+    x[:Np] .= Np
+    x[:Tp] .= Tp
+    x[:chord] .= chord
+    x[:twist] .= twist
+    x[:A] .= A
+    x[:Iyy] .= Iyy
+    x[:Izz] .= Izz
+    x[:Iyz] .= Iyz
+
+    # Reshape the partials
     dFx_domega = partials["Fx", "omega"]
-    dFx_dA = partials["Fx", "A"]
-    dMy_dTp = partials["My", "Tp"]
-    dMy_dNp = partials["My", "Np"]
-    dMz_dTp = partials["Mz", "Tp"]
-    dMz_dNp = partials["Mz", "Np"]
-    # dMy_dc = partials["My", "chord"]
-    # dMz_dc = partials["Mz", "chord"]
+    dFx_dA = partials["Fx", "A"] #transpose(reshape(partials["Fx", "A"], nelems, nelems))
 
-    nelem = length(self.points)-1
+    dMy_domega = partials["My", "omega"]
+    dMy_dTp = partials["My", "A"] #transpose(reshape(partials["My", "Tp"], nelems, nnodes))
+    dMy_dNp = partials["My", "Np"] #transpose(reshape(partials["My", "Np"], nelems, nnodes))
+    dMy_dA = partials["My", "A"] #transpose(reshape(partials["My", "A"], nelems, nelems))
+    dMy_dIyy = partials["My", "Iyy"] #transpose(reshape(partials["My", "Iyy"], nelems, nelems))
+    dMy_dIzz = partials["My", "Izz"] #transpose(reshape(partials["My", "Izz"], nelems, nelems))
+    dMy_dIyz = partials["My", "Iyz"] #transpose(reshape(partials["My", "Iyz"], nelems, nelems))
 
-    E = self.E
-    rho = self.rho
-    nu = self.nu
+    dMz_domega = partials["Mz", "omega"]
+    dMz_dTp = partials["My", "Tp"] #transpose(reshape(partials["Mz", "Tp"], nelems, nnodes))
+    dMz_dNp = partials["My", "Np"] #transpose(reshape(partials["Mz", "Np"], nelems, nnodes))
+    dMz_dA = partials["My", "A"] #transpose(reshape(partials["Mz", "A"], nelems, nelems))
+    dMz_dIyy = partials["My", "Iyy"] #transpose(reshape(partials["Mz", "Iyy"], nelems, nelems))
+    dMz_dIzz = partials["My", "Izz"] #transpose(reshape(partials["Mz", "Izz"], nelems, nelems))
+    dMz_dIyz = partials["My", "Iyz"] #transpose(reshape(partials["Mz", "Iyz"], nelems, nelems))
 
-    assembly, system = create_assembly(points=self.points, omega=omega,
-                                       Tp=Tp, Np=Np, chord=chord, twist=twist,
-                                       A=A, Iyy=Iyy, Izz=Izz, Iyz=Iyz,
-                                       rho=rho, E=E, nu=nu)
+    # Get the Jacobian.
+    ForwardDiff.jacobian!(J, self.apply_nonlinear_forwarddiffable!, y, x, config)
 
-    bcs = Dict(
-        1 => PrescribedConditions(ux=0, uy=0, uz=0, theta_x=0, theta_y=0, theta_z=0)
-    )
-    state = AssemblyState(system, assembly; prescribed_conditions=bcs)
-    Fx = [state.elements[ielem].F[1] for ielem = 1:length(assembly.elements)]
-    My = [state.elements[ielem].M[2] for ielem = 1:length(assembly.elements)]
-    Mz = [state.elements[ielem].M[3] for ielem = 1:length(assembly.elements)]
+    dFx_domega .= J[:Fx, :omega]
+    dFx_dA .= J[:Fx, :A]
 
-    x = [self.points[i, 1][1] for i = 1:length(self.points)]
-    nelem = length(self.points)-1
-    start = 1:nelem
-    stop = 2:nelem+1
-    dl = x[stop] - x[start]
-    xe = [assembly.elements[ielem].x[1] for ielem = 1:length(assembly.elements)]
+    dMy_domega .= J[:My, :omega]
+    dMy_dTp .= J[:My, :Tp]
+    dMy_dNp .= J[:My, :Np]
+    dMy_dA .= J[:My, :A]
+    dMy_dIyy .= J[:My, :Iyy]
+    dMy_dIzz .= J[:My, :Izz]
+    dMy_dIyz .= J[:My, :Iyz]
 
-    # Check that I am computing the axial forces correctly
-    Fx_check = 0.5 .* (dl ./1.0) .* (omega^2 * rho .*A .* xe)
-
-    for i = 1:length(Fx_check)
-        for j = i+1:length(Fx_check)
-            Fx_check[i] += 2.0 * Fx_check[j]
-        end
-    end
-    println(abs.(Fx_check - Fx)./Fx)
-
-    p = plot(xlim = (x[1], x[length(x)]),
-        xticks = 0.0:0.05:x[length(x)],
-        xlabel = "x (m)",
-        ylabel = "Fx (N)",
-        overwrite=true,
-        grid=false,
-        overwrite_figure=false,
-        show=true)
-    plot!(xe, Fx, label="Fx")
-    plot!(xe, Fx_check, label="check")
-    savefig("check_forces.pdf")
-
-    # Compute the gradients of the axial force
-    dFx_domega[1:end] = 2.0*Fx/omega
-
-    k = rho*omega^2
-    for i = 1:nelem
-        for j = i:nelem
-            if i == j
-                dFx_dA[j, i] = 0.5*dl[i]*k*xe[i]
-            else
-                dFx_dA[j, i] = dl[i]*k*xe[i]
-            end
-        end
-    end
-
-    x = system.x
-    F = system.r
-    J = system.K
-#     force_scaling = system.force_scaling
-#     mass_scaling = system.mass_scaling
-    irow_pt = system.irow_pt
-    irow_beam = system.irow_beam
-    irow_beam1 = system.irow_beam1
-    irow_beam2 = system.irow_beam2
-    icol_pt = system.icol_pt
-    icol_beam = system.icol_beam
-#
-#     unscaled_Fx = x[icol_beam.+6]
-#     force_scaling = (Fx./unscaled_Fx)[1]
-#     mass_scaling = 1.0
-
-#
-#     j! = (J, x) -> system_jacobian!(J, x, assembly, prescribed_conditions,
-#             distributed_loads, force_scaling, mass_scaling, irow_pt, irow_beam, irow_beam1,
-#             irow_beam2, icol_pt, icol_beam, [0.0, 0.0, 0.0], [0.0, 0.0, 0.0], [0.0, 0.0, omega[1]])
-#     j!(J, x)
-#
-    for i in 1:nelem
-        for j in 1:nelem
-            dMy_dTp[i, j] = J[irow_beam[i]+1, icol_beam[j]+10]
-            dMy_dNp[i, j] = J[irow_beam[i]+2, icol_beam[j]+10]
-            dMz_dTp[i, j] = J[irow_beam[i]+1, icol_beam[j]+11]
-            dMz_dNp[i, j] = J[irow_beam[i]+2, icol_beam[j]+11]
-        end
-    end
-    println(dMy_dTp)
-    println(dMy_dNp)
-    println(dMz_dTp)
-    println(dMz_dNp)
+    dMz_domega .= J[:Mz, :omega]
+    dMz_dTp .= J[:Mz, :Tp]
+    dMz_dNp .= J[:Mz, :Np]
+    dMz_dA .= J[:Mz, :A]
+    dMz_dIyy .= J[:Mz, :Iyy]
+    dMz_dIzz .= J[:Mz, :Izz]
+    dMz_dIyz .= J[:Mz, :Iyz]
 
 end
