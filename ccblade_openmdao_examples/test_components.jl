@@ -65,7 +65,7 @@ prob = om.Problem()
 span = 0.3
 num_elem = 10
 omega = 7110.0*2*pi/60
-x = collect(range(0.06, span, length=num_elem+1))
+#x = collect(range(0.06, span, length=num_elem+1))
 Tp = collect(range(10.0, 50.0, length=num_elem+1))
 Np = collect(range(10.0, 200.0, length=num_elem+1))
 chord = collect(range(1.5*0.0254, 0.5*0.0254, length=num_elem))
@@ -83,10 +83,6 @@ Izz0 = (k.^4)*5100.8
 Iyy = @. c2 *Iyy0 + s2 *Izz0
 Izz = @. s2 *Iyy0 + c2 *Izz0
 Iyz = @. (Iyy0 - Izz0)*s*c
-# A = collect(range(0.01, 0.005, length=num_elem))
-# Iyy = collect(range(0.002, 0.001, length=num_elem))
-# Izz = collect(range(0.002, 0.001, length=num_elem))
-# Iyz = collect(range(0.001, 0.0, length=num_elem))
 
 ivc = om.IndepVarComp()
 ivc.add_output("omega", omega, units="rad/s")
@@ -100,9 +96,9 @@ ivc.add_output("Izz", Izz, units="m**4")
 ivc.add_output("Iyz", Iyz, units="m**4")
 prob.model.add_subsystem("ivc", ivc, promotes=["*"])
 
-solver_comp = make_component(SolverComp(rho=2600.0, E=70e9, nu=0.33, x=x))
+solver_comp = make_component(SolverComp(rho=2600.0, E=70e9, nu=0.33, span=span, nnodes=num_elem+1))
 prob.model.add_subsystem("solver_comp", solver_comp, promotes=["*"])
 
 prob.setup()
 prob.run_model()
-prob.check_partials(compact_print=true)
+prob.check_partials(compact_print=true, step=1e-10)
