@@ -3,52 +3,62 @@ import numpy as np
 import openmdao.api as om
 from julia.OpenMDAO import make_component
 import julia.Main as julia
-from ccblade_openmdao_examples.area_component import AreaComp
-from ccblade_openmdao_examples.gxbeam_component import GXBeamComp
-from ccblade_openmdao_examples.stress_component import StressComp
+from ccblade_openmdao_examples.gxbeam_openmdao_component import AreaComp
+from ccblade_openmdao_examples.gxbeam_openmdao_component import SolverComp
+from ccblade_openmdao_examples.gxbeam_openmdao_component import StressComp
+from ccblade_openmdao_examples.gxbeam_openmdao_component import MassComp
 
 class StructuralGroup(om.Group):
     def initialize(self):
-        self.options.declare('num_elem', types=int)
-        self.options.declare('num_radial', types=int)
-        self.options.declare('num_stress_eval_points', types=int)
+        self.options.declare("nnodes", types=int)
+        self.options.declare("num_stress_eval_points", types=int)
 
         return
 
     def setup(self):
 
-        num_elem = self.options['num_elem']
-        num_radial = self.options['num_radial']
-        num_stress_eval_points = self.options['num_stress_eval_points']
+        num_stress_eval_points = self.options["num_stress_eval_points"]
+        nnodes = self.options["nnodes"]
+        nelems = nnodes-1
+        span = 12.0*0.0254
+        ys = 345e6
 
         area_comp = make_component(
             AreaComp(
-                num_elem=num_elem, A_ref=821.8, Iyy_ref=23543.4, Izz_ref=5100.8))
+                nelems=nelems, A_ref=821.8, Iyy_ref=23543.4, Izz_ref=5100.8))
 
-        gxbeam_comp = make_component(
-            GXBeamComp(
-                rho=2600.0, E=68.0e9, nu=0.33, span=12.0*0.0254, num_elem=num_elem, num_radial=num_radial))
+        solver_comp = make_component(
+            SolverComp(
+                rho=2780.0, E=72.4e9, nu=0.33, span=span, nnodes=nnodes))
 
         stress_comp = make_component(
             StressComp(
-                num_stress_eval_points=num_stress_eval_points))
+                nelems=nelems, num_stress_eval_points=num_stress_eval_points, ys=ys))
 
-        self.add_subsystem(name='area_comp',
+        mass_comp = make_component(
+            MassComp(rho=2780.0, span=span, nelems=nelems))
+
+        self.add_subsystem(name="area_comp",
                            subsys=area_comp,
-                           promotes_inputs=['*'],
-                           promotes_outputs=['*'])
+                           promotes_inputs=["*"],
+                           promotes_outputs=["*"])
 
-        self.add_subsystem(name='gxbeam_comp',
-                           subsys=gxbeam_comp,
-                           promotes_inputs=['*'])
+        self.add_subsystem(name="solver_comp",
+                           subsys=solver_comp,
+                           promotes_inputs=["*"])
 
-        self.add_subsystem(name='stress_comp',
+        self.add_subsystem(name="stress_comp",
                            subsys=stress_comp,
-                           promotes_inputs=['chord', 'twist', 'A', 'Iyy', 'Izz', 'Iyz'].
-                           promotes_outputs=['sigma1'])
+                           promotes_inputs=["chord", "twist", "A", "Iyy", "Izz", "Iyz"],
+                           promotes_outputs=["sigma1"])
 
-        self.connect('gxbeam_comp.Nx', 'stress_comp.Nx')
-        self.connect('gxbeam_comp.My', 'stress_comp.My')
-        self.connect('gxbeam_comp.Mz', 'stress_comp.Mz')
+        self.add_subsystem(name="mass_comp",
+                           subsys=mass_comp,
+                           promotes_inputs=["A"],
+                           promotes_outputs=["m"])
+
+        self.connect("solver_comp.Fx", "stress_comp.Fx")
+        self.connect("solver_comp.My", "stress_comp.My")
+        self.connect("solver_comp.Mz", "stress_comp.Mz")
 
         return

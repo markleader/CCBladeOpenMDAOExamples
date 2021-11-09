@@ -4,9 +4,9 @@ include("area_component.jl")
 
 prob = om.Problem()
 
-num_elem = 5
-chord = collect(range(1.5*0.0254, 0.5*0.0254, length=num_elem))
-twist = collect(range(1.0, 0.0, length=num_elem))
+nelems = 5
+chord = collect(range(1.5*0.0254, 0.5*0.0254, length=nelems))
+twist = 1.57079*ones(nelems) #collect(range(1.0, 0.0, length=nelems))
 
 A_ref = 821.8
 Iyy_ref = 23543.4
@@ -17,27 +17,27 @@ ivc.add_output("chord", chord, units="m")
 ivc.add_output("twist", twist, units="rad")
 prob.model.add_subsystem("ivc", ivc, promotes=["*"])
 
-area_comp = make_component(AreaComp(num_elem=num_elem, A_ref=A_ref, Iyy_ref=Iyy_ref, Izz_ref=Izz_ref))  # Need to convert Julia obj to Python obj
+area_comp = make_component(AreaComp(nelems=nelems, A_ref=A_ref, Iyy_ref=Iyy_ref, Izz_ref=Izz_ref))  # Need to convert Julia obj to Python obj
 prob.model.add_subsystem("area_comp", area_comp, promotes=["*"])
 
-prob.setup()
-prob.run_model()
-#prob.check_partials(compact_print=true)
+# prob.setup()
+# prob.run_model()
+# prob.check_partials(compact_print=true)
 
 include("stress_component.jl")
 
 prob = om.Problem()
 
-num_elem = 5
-Nx = collect(range(1000.0, 0.0, length=num_elem))
-My = collect(range(100.0, 0.0, length=num_elem))
-Mz = collect(range(500.0, 0.0, length=num_elem))
-chord = collect(range(1.5*0.0254, 0.5*0.0254, length=num_elem))
-twist = collect(range(1.0, 0.0, length=num_elem))
-A = collect(range(0.01, 0.005, length=num_elem))
-Iyy = collect(range(0.002, 0.001, length=num_elem))
-Izz = collect(range(0.002, 0.001, length=num_elem))
-Iyz = collect(range(0.001, 0.0, length=num_elem))
+nelems = 5
+Nx = collect(range(1000.0, 0.0, length=nelems))
+My = collect(range(100.0, 0.0, length=nelems))
+Mz = collect(range(500.0, 0.0, length=nelems))
+chord = collect(range(1.5*0.0254, 0.5*0.0254, length=nelems))
+twist = collect(range(1.0, 0.0, length=nelems))
+A = collect(range(0.01, 0.005, length=nelems))
+Iyy = collect(range(0.002, 0.001, length=nelems))
+Izz = collect(range(0.002, 0.001, length=nelems))
+Iyz = collect(range(0.001, 0.0, length=nelems))
 
 ivc = om.IndepVarComp()
 ivc.add_output("Nx", Nx, units="N")
@@ -51,25 +51,25 @@ ivc.add_output("Izz", Izz, units="m**4")
 ivc.add_output("Iyz", Iyz, units="m**4")
 prob.model.add_subsystem("ivc", ivc, promotes=["*"])
 
-area_comp = make_component(StressComp(num_elem=num_elem, num_stress_eval_points=20))
+area_comp = make_component(StressComp(nelems=nelems, num_stress_eval_points=50, ys=345e6))
 prob.model.add_subsystem("stress_comp", area_comp, promotes=["*"])
 
 prob.setup()
 prob.run_model()
-#prob.check_partials(compact_print=true)
+prob.check_partials(compact_print=true)
 
 include("gxbeam_component.jl")
 
 prob = om.Problem()
 
 span = 0.3
-num_elem = 10
+nelems = 10
 omega = 7110.0*2*pi/60
-#x = collect(range(0.06, span, length=num_elem+1))
-Tp = collect(range(10.0, 50.0, length=num_elem+1))
-Np = collect(range(10.0, 200.0, length=num_elem+1))
-chord = collect(range(1.5*0.0254, 0.5*0.0254, length=num_elem))
-twist = collect(range(1.0, 0.0, length=num_elem))
+#x = collect(range(0.06, span, length=nelems+1))
+Tp = collect(range(10.0, 50.0, length=nelems+1))
+Np = collect(range(10.0, 200.0, length=nelems+1))
+chord = collect(range(1.5*0.0254, 0.5*0.0254, length=nelems))
+twist = collect(range(1.0, 0.0, length=nelems))
 
 s = sin.(twist)
 c = cos.(twist)
@@ -96,9 +96,22 @@ ivc.add_output("Izz", Izz, units="m**4")
 ivc.add_output("Iyz", Iyz, units="m**4")
 prob.model.add_subsystem("ivc", ivc, promotes=["*"])
 
-solver_comp = make_component(SolverComp(rho=2600.0, E=70e9, nu=0.33, span=span, nnodes=num_elem+1))
+solver_comp = make_component(SolverComp(rho=2600.0, E=70e9, nu=0.33, span=span, nnodes=nelems+1))
 prob.model.add_subsystem("solver_comp", solver_comp, promotes=["*"])
 
-prob.setup()
-prob.run_model()
-prob.check_partials(compact_print=true, step=1e-10)
+# prob.setup()
+# prob.run_model()
+# prob.check_partials(compact_print=true, step=1e-10)
+
+include("mass_component.jl")
+
+prob = om.Problem()
+ivc = om.IndepVarComp()
+ivc.add_output("A", A, units="m**2")
+
+solver_comp = make_component(MassComp(rho=2600.0, span=span, nelems=nelems))
+prob.model.add_subsystem("mass_comp", solver_comp, promotes=["*"])
+
+# prob.setup()
+# prob.run_model()
+# prob.check_partials(compact_print=true)

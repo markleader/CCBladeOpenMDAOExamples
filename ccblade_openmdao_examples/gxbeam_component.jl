@@ -27,7 +27,7 @@ function create_assembly(; points, Tp, Np, omega, chord, twist, A, Iyy, Izz, Iyz
 
     G = E/(2*(1 + nu))
 
-    x3c = 0.0 # 0.17*cos.(twist).*chord
+    x3c = 0.17*cos.(twist).*chord
     ky = 10*(1 + nu)/(12 + 11*nu)
     kz = 10*(1 + nu)/(12 + 11*nu)
 
@@ -49,11 +49,11 @@ function create_assembly(; points, Tp, Np, omega, chord, twist, A, Iyy, Izz, Iyz
                     =#[0,      0,       0,       0,  0,       0     ]#=
                     =#[0,      0,       0,       0,  H22[i], -H23[i]]#=
                     =#[0,      0,       0,       0, -H23[i],  H33[i]]]
-        elem_mass = [[rho*A[i],        0,               0,        0,               0,               0     ]#=
-                   =#[0,               rho*A[i],        0,        0,               0,               0     ]#=
+        elem_mass = [[rho*A[i],        0,               0,        0,               rho*A[i]*x3c[i], 0     ]#=
+                   =#[0,               rho*A[i],        0,       -rho*A[i]*x3c[i], 0,               0     ]#=
                    =#[0,               0,               rho*A[i], 0,               0,               0     ]#=
-                   =#[0,               0,               0,        Iyy[i]+Izz[i],   0,               0     ]#=
-                   =#[0,               0,               0,        0,               Iyy[i],         -Iyz[i]]#=
+                   =#[0,              -rho*A[i]*x3c[i], 0,        Iyy[i]+Izz[i],   0,               0     ]#=
+                   =#[rho*A[i]*x3c[i], 0,               0,        0,               Iyy[i],         -Iyz[i]]#=
                    =#[0,               0,               0,        0,              -Iyz[i],          Izz[i]]]
         stiffness[i] = elem_stiff
         mass[i] = elem_mass
@@ -89,14 +89,14 @@ function create_assembly(; points, Tp, Np, omega, chord, twist, A, Iyy, Izz, Iyz
     # define distributed loads
     distributed_loads = Dict()
     for i = 1:nelems
-        distributed_loads[2*i-1] = DistributedLoads(assembly, i; s1=x[i], s2=x[i+1], fy = (s) -> interp_aero_force(s, x, Tp))
-        distributed_loads[2*i] = DistributedLoads(assembly, i; s1=x[i], s2=x[i+1], fz = (s) -> interp_aero_force(s, x, Np))
+        distributed_loads[2*i-1] = DistributedLoads(assembly, i; s1=x[i], s2=x[i+1], fy = (s) -> interp_aero_force(s, x, Np))
+        distributed_loads[2*i] = DistributedLoads(assembly, i; s1=x[i], s2=x[i+1], fz = (s) -> interp_aero_force(s, x, Tp))
     end
 
     system, converged = steady_state_analysis(assembly;
         prescribed_conditions=bcs,
         distributed_loads=distributed_loads,
-        angular_velocity=[zero(T), zero(T), omega], linear=true)
+        angular_velocity=[zero(T), omega, zero(T)], linear=true)
 
     return assembly, system
 end
@@ -183,18 +183,21 @@ function OpenMDAO.setup(self::SolverComp)
 
     # Declare the OpenMDAO outputs.
     output_data = Vector{VarData}()
-    push!(output_data, VarData("Fx", shape=shape=nelems, units="N/m"))
-    push!(output_data, VarData("My", shape=shape=nelems, units="N/m"))
-    push!(output_data, VarData("Mz", shape=shape=nelems, units="N/m"))
+    push!(output_data, VarData("Fx", shape=shape=nelems, units="N"))
+    push!(output_data, VarData("My", shape=shape=nelems, units="N*m"))
+    push!(output_data, VarData("Mz", shape=shape=nelems, units="N*m"))
 
     # Declare the OpenMDAO partial derivatives.
     partials_data = Vector{PartialsData}()
+
     push!(partials_data, PartialsData("Fx", "omega"))
     push!(partials_data, PartialsData("Fx", "A"))
 
     push!(partials_data, PartialsData("My", "omega"))
     push!(partials_data, PartialsData("My", "Tp"))
     push!(partials_data, PartialsData("My", "Np"))
+    push!(partials_data, PartialsData("My", "chord"))
+    push!(partials_data, PartialsData("My", "twist"))
     push!(partials_data, PartialsData("My", "A"))
     push!(partials_data, PartialsData("My", "Iyy"))
     push!(partials_data, PartialsData("My", "Izz"))
@@ -203,6 +206,8 @@ function OpenMDAO.setup(self::SolverComp)
     push!(partials_data, PartialsData("Mz", "omega"))
     push!(partials_data, PartialsData("Mz", "Tp"))
     push!(partials_data, PartialsData("Mz", "Np"))
+    push!(partials_data, PartialsData("Mz", "chord"))
+    push!(partials_data, PartialsData("Mz", "twist"))
     push!(partials_data, PartialsData("Mz", "A"))
     push!(partials_data, PartialsData("Mz", "Iyy"))
     push!(partials_data, PartialsData("Mz", "Izz"))
@@ -256,6 +261,8 @@ end
 
 function OpenMDAO.compute_partials!(self::SolverComp, inputs, partials)
 
+    nelems = self.nnodes-1
+
     # Unpack the inputs.
     omega = inputs["omega"][1]
     Np = inputs["Np"]
@@ -266,8 +273,6 @@ function OpenMDAO.compute_partials!(self::SolverComp, inputs, partials)
     Iyy = inputs["Iyy"]
     Izz = inputs["Izz"]
     Iyz = inputs["Iyz"]
-    nelems = length(A)
-    nnodes = nelems+1
 
     # Working arrays and configuration for ForwardDiff's Jacobian routine.
     x = self.x
@@ -292,6 +297,8 @@ function OpenMDAO.compute_partials!(self::SolverComp, inputs, partials)
     dMy_domega = partials["My", "omega"]
     dMy_dTp = partials["My", "Tp"]
     dMy_dNp = partials["My", "Np"]
+    dMy_dchord = partials["My", "chord"]
+    dMy_dtwist = partials["My", "twist"]
     dMy_dA = partials["My", "A"]
     dMy_dIyy = partials["My", "Iyy"]
     dMy_dIzz = partials["My", "Izz"]
@@ -300,6 +307,8 @@ function OpenMDAO.compute_partials!(self::SolverComp, inputs, partials)
     dMz_domega = partials["Mz", "omega"]
     dMz_dTp = partials["Mz", "Tp"]
     dMz_dNp = partials["Mz", "Np"]
+    dMz_dchord = partials["Mz", "chord"]
+    dMz_dtwist = partials["Mz", "twist"]
     dMz_dA = partials["Mz", "A"]
     dMz_dIyy = partials["Mz", "Iyy"]
     dMz_dIzz = partials["Mz", "Izz"]
@@ -315,6 +324,8 @@ function OpenMDAO.compute_partials!(self::SolverComp, inputs, partials)
     dMy_dTp .= J[:My, :Tp]
     dMy_dNp .= J[:My, :Np]
     dMy_dA .= J[:My, :A]
+    dMy_dchord .= J[:My, :chord]
+    dMy_dtwist .= J[:My, :twist]
     dMy_dIyy .= J[:My, :Iyy]
     dMy_dIzz .= J[:My, :Izz]
     dMy_dIyz .= J[:My, :Iyz]
@@ -322,6 +333,8 @@ function OpenMDAO.compute_partials!(self::SolverComp, inputs, partials)
     dMz_domega .= J[:Mz, :omega]
     dMz_dTp .= J[:Mz, :Tp]
     dMz_dNp .= J[:Mz, :Np]
+    dMz_dchord .= J[:Mz, :chord]
+    dMz_dtwist .= J[:Mz, :twist]
     dMz_dA .= J[:Mz, :A]
     dMz_dIyy .= J[:Mz, :Iyy]
     dMz_dIzz .= J[:Mz, :Izz]
