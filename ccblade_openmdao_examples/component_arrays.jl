@@ -38,6 +38,8 @@ function BEMTRotorCAComp(; af_fname, cr75, Re_exp, num_operating_points, num_bla
         v = x[:v]
         omega = x[:omega]
         pitch = x[:pitch]
+        Np = x[:Np]
+        Tp = x[:Tp]
 
         # Create the CCBlade rotor struct.
         turbine = false
@@ -57,6 +59,10 @@ function BEMTRotorCAComp(; af_fname, cr75, Re_exp, num_operating_points, num_bla
         Rs = getindex.(Rs_and_outs, 1)
         outs = getindex.(Rs_and_outs, 2)
 
+        # Get the aero forces
+        Np[:] .= getproperty.(outs, :Np)
+        Tp[:] .= getproperty.(outs, :Tp)
+
         # Get the thrust and torque, then the efficiency, etc.
         # coefficients.
         thrust, torque = CCBlade.thrusttorque(rotor, sections, outs)
@@ -73,6 +79,8 @@ function BEMTRotorCAComp(; af_fname, cr75, Re_exp, num_operating_points, num_bla
         y[:torque] = torque
         y[:eff] = eff
         y[:figure_of_merit] = figure_of_merit
+        y[:Np] .= Np
+        y[:Tp] .= Tp
 
         return nothing
     end
@@ -81,9 +89,9 @@ function BEMTRotorCAComp(; af_fname, cr75, Re_exp, num_operating_points, num_bla
     # ForwardDiff.jl inputs include phi, but that's an OpenMDAO output.)
     X = ComponentArray(
         phi=zeros(Float64, num_radial), Rhub=0.0, Rtip=0.0, radii=zeros(Float64, num_radial), chord=zeros(Float64, num_radial),
-        theta=zeros(Float64, num_radial), v=0.0, omega=0.0, pitch=0.0)
+        theta=zeros(Float64, num_radial), v=0.0, omega=0.0, pitch=0.0, Np=zeros(Float64, num_radial), Tp=zeros(Float64, num_radial))
     Y = ComponentArray(
-        phi=zeros(Float64, num_radial), thrust=0.0, torque=0.0, eff=0.0, figure_of_merit=0.0)
+        phi=zeros(Float64, num_radial), thrust=0.0, torque=0.0, eff=0.0, figure_of_merit=0.0, Np=zeros(Float64, num_radial), Tp=zeros(Float64, num_radial))
     J = Y.*X'
 
     # Get the JacobianConfig object, which we'll reuse each time when calling
@@ -116,6 +124,8 @@ function OpenMDAO.setup(self::BEMTRotorCAComp)
     push!(output_data, VarData("torque", shape=num_operating_points, val=1.0, units="N*m"))
     push!(output_data, VarData("efficiency", shape=num_operating_points, val=1.0))
     push!(output_data, VarData("figure_of_merit", shape=num_operating_points, val=1.0))
+    push!(output_data, VarData("Np", shape=(num_operating_points, num_radial), val=1.0, units="N/m"))
+    push!(output_data, VarData("Tp", shape=(num_operating_points, num_radial), val=1.0, units="N/m"))
 
     # Declare the OpenMDAO partial derivatives.
     ss_sizes = Dict(:i=>num_operating_points, :j=>num_radial, :k=>1)
@@ -124,19 +134,39 @@ function OpenMDAO.setup(self::BEMTRotorCAComp)
     rows, cols = get_rows_cols(ss_sizes=ss_sizes, of_ss=[:i, :j], wrt_ss=[:k])
     push!(partials_data, PartialsData("phi", "Rhub", rows=rows, cols=cols))
     push!(partials_data, PartialsData("phi", "Rtip", rows=rows, cols=cols))
+    push!(partials_data, PartialsData("Np", "Rhub", rows=rows, cols=cols))
+    push!(partials_data, PartialsData("Np", "Rtip", rows=rows, cols=cols))
+    push!(partials_data, PartialsData("Tp", "Rhub", rows=rows, cols=cols))
+    push!(partials_data, PartialsData("Tp", "Rtip", rows=rows, cols=cols))
 
     rows, cols = get_rows_cols(ss_sizes=ss_sizes, of_ss=[:i, :j], wrt_ss=[:j])
     push!(partials_data, PartialsData("phi", "radii", rows=rows, cols=cols))
     push!(partials_data, PartialsData("phi", "chord", rows=rows, cols=cols))
     push!(partials_data, PartialsData("phi", "theta", rows=rows, cols=cols))
+    push!(partials_data, PartialsData("Np", "radii", rows=rows, cols=cols))
+    push!(partials_data, PartialsData("Np", "chord", rows=rows, cols=cols))
+    push!(partials_data, PartialsData("Np", "theta", rows=rows, cols=cols))
+    push!(partials_data, PartialsData("Tp", "radii", rows=rows, cols=cols))
+    push!(partials_data, PartialsData("Tp", "chord", rows=rows, cols=cols))
+    push!(partials_data, PartialsData("Tp", "theta", rows=rows, cols=cols))
 
     rows, cols = get_rows_cols(ss_sizes=ss_sizes, of_ss=[:i, :j], wrt_ss=[:i])
     push!(partials_data, PartialsData("phi", "v", rows=rows, cols=cols))
     push!(partials_data, PartialsData("phi", "omega", rows=rows, cols=cols))
     push!(partials_data, PartialsData("phi", "pitch", rows=rows, cols=cols))
+    push!(partials_data, PartialsData("Np", "v", rows=rows, cols=cols))
+    push!(partials_data, PartialsData("Np", "omega", rows=rows, cols=cols))
+    push!(partials_data, PartialsData("Np", "pitch", rows=rows, cols=cols))
+    push!(partials_data, PartialsData("Tp", "v", rows=rows, cols=cols))
+    push!(partials_data, PartialsData("Tp", "omega", rows=rows, cols=cols))
+    push!(partials_data, PartialsData("Tp", "pitch", rows=rows, cols=cols))
 
     rows, cols = get_rows_cols(ss_sizes=ss_sizes, of_ss=[:i, :j], wrt_ss=[:i, :j])
     push!(partials_data, PartialsData("phi", "phi", rows=rows, cols=cols))
+    push!(partials_data, PartialsData("Np", "Np", rows=rows, cols=cols, val=-1.0))
+    push!(partials_data, PartialsData("Np", "phi", rows=rows, cols=cols))
+    push!(partials_data, PartialsData("Tp", "Tp", rows=rows, cols=cols, val=-1.0))
+    push!(partials_data, PartialsData("Tp", "phi", rows=rows, cols=cols))
 
     rows, cols = get_rows_cols(ss_sizes=ss_sizes, of_ss=[:i], wrt_ss=[:k])
     push!(partials_data, PartialsData("thrust", "Rhub", rows=rows, cols=cols))
@@ -221,6 +251,8 @@ function OpenMDAO.solve_nonlinear!(self::BEMTRotorCAComp, inputs, outputs)
     torque = outputs["torque"]
     efficiency = outputs["efficiency"]
     figure_of_merit = outputs["figure_of_merit"]
+    Np = outputs["Np"]
+    Tp = outputs["Tp"]
 
     # Create the CCBlade rotor struct. Same for each operating point and radial
     # element.
@@ -252,6 +284,10 @@ function OpenMDAO.solve_nonlinear!(self::BEMTRotorCAComp, inputs, outputs)
 
         # Get the local inflow angle, the BEMT implicit variable.
         phi[n, :] .= getproperty.(outs, :phi)
+
+        # Get the aerodynamic forces
+        Np[n, :] .= getproperty.(outs, :Np)
+        Tp[n, :] .= getproperty.(outs, :Tp)
     end
 
     return nothing
@@ -315,9 +351,15 @@ function OpenMDAO.apply_nonlinear!(self::BEMTRotorCAComp, inputs, outputs, resid
         # Get the thrust, torque, and efficiency.
         outs = getindex.(Rs_and_outs, 2)
 
+        # Set the residual of the aerodynamic forces
+        Np = getproperty.(outs, :Np)
+        Tp = getproperty.(outs, :Tp)
+        residuals["Np"][n, :] .= Np .- outputs["Np"][n, :]
+        residuals["Tp"][n, :] .= Tp .- outputs["Tp"][n, :]
+
         thrust, torque = CCBlade.thrusttorque(rotor, sections, outs)
         efficiency, CT, CQ = CCBlade.nondim(thrust, torque, Vx, omega[n], rho, rotor, "propeller")
-        if thrust > zero(T)
+        if real(thrust) > 0.0
             figure_of_merit, CT, CP = CCBlade.nondim(thrust, torque, Vx, omega[n], rho, rotor, "helicopter")
         else
             figure_of_merit = zero(T)
@@ -354,8 +396,10 @@ function OpenMDAO.linearize!(self::BEMTRotorCAComp, inputs, outputs, partials)
 
     # Unpack the output.
     phi = outputs["phi"]
+    Np = outputs["Np"]
+    Tp = outputs["Tp"]
 
-    y_ce = ComponentArray(phi=phi[1, :])
+    y_ce = ComponentArray(phi=phi[1, :], Np=Np[1, :], Tp=Tp[1, :])
 
     # Working arrays and configuration for ForwardDiff's Jacobian routine.
     x = self.x
@@ -378,6 +422,28 @@ function OpenMDAO.linearize!(self::BEMTRotorCAComp, inputs, outputs, partials)
     dphi_domega = transpose(reshape(partials["phi", "omega"], num_radial, num_operating_points))
     dphi_dpitch = transpose(reshape(partials["phi", "pitch"], num_radial, num_operating_points))
     dphi_dphi = transpose(reshape(partials["phi", "phi"], num_radial, num_operating_points))
+
+    dNp_dRhub = transpose(reshape(partials["Np", "Rhub"], num_radial, num_operating_points))
+    dNp_dRtip = transpose(reshape(partials["Np", "Rtip"], num_radial, num_operating_points))
+    dNp_dradii = transpose(reshape(partials["Np", "radii"], num_radial, num_operating_points))
+    dNp_dchord = transpose(reshape(partials["Np", "chord"], num_radial, num_operating_points))
+    dNp_dtheta = transpose(reshape(partials["Np", "theta"], num_radial, num_operating_points))
+    dNp_dv = transpose(reshape(partials["Np", "v"], num_radial, num_operating_points))
+    dNp_domega = transpose(reshape(partials["Np", "omega"], num_radial, num_operating_points))
+    dNp_dpitch = transpose(reshape(partials["Np", "pitch"], num_radial, num_operating_points))
+    dNp_dphi = transpose(reshape(partials["Np", "phi"], num_radial, num_operating_points))
+    dNp_dNp = transpose(reshape(partials["Np", "Np"], num_radial, num_operating_points))
+
+    dTp_dRhub = transpose(reshape(partials["Tp", "Rhub"], num_radial, num_operating_points))
+    dTp_dRtip = transpose(reshape(partials["Tp", "Rtip"], num_radial, num_operating_points))
+    dTp_dradii = transpose(reshape(partials["Tp", "radii"], num_radial, num_operating_points))
+    dTp_dchord = transpose(reshape(partials["Tp", "chord"], num_radial, num_operating_points))
+    dTp_dtheta = transpose(reshape(partials["Tp", "theta"], num_radial, num_operating_points))
+    dTp_dv = transpose(reshape(partials["Tp", "v"], num_radial, num_operating_points))
+    dTp_domega = transpose(reshape(partials["Tp", "omega"], num_radial, num_operating_points))
+    dTp_dpitch = transpose(reshape(partials["Tp", "pitch"], num_radial, num_operating_points))
+    dTp_dphi = transpose(reshape(partials["Tp", "phi"], num_radial, num_operating_points))
+    dTp_dTp = transpose(reshape(partials["Tp", "Tp"], num_radial, num_operating_points))
 
     dthrust_dRhub = partials["thrust", "Rhub"]
     dthrust_dRtip = partials["thrust", "Rtip"]
@@ -430,32 +496,46 @@ function OpenMDAO.linearize!(self::BEMTRotorCAComp, inputs, outputs, partials)
         x[:v] = v[n]
         x[:omega] = omega[n]
         x[:pitch] = pitch[n]
+        x[:Np] .= Np[n, :]
+        x[:Tp] .= Tp[n, :]
 
         # Get the Jacobian.
         ForwardDiff.jacobian!(J, self.apply_nonlinear_forwarddiffable!, y, x, config)
 
         for r in 1:num_radial
             dphi_dphi[n, r] = J[:phi, :phi][r, r]
+            dphi_dradii[n, r] = J[:phi, :radii][r, r]
+            dphi_dchord[n, r] = J[:phi, :chord][r, r]
+            dphi_dtheta[n, r] = J[:phi, :theta][r, r]
+
+            dNp_dphi[n, r] = J[:Np, :phi][r, r]
+            dNp_dradii[n, r] = J[:Np, :radii][r, r]
+            dNp_dchord[n, r] = J[:Np, :chord][r, r]
+            dNp_dtheta[n, r] = J[:Np, :theta][r, r]
+
+            dTp_dphi[n, r] = J[:Tp, :phi][r, r]
+            dTp_dradii[n, r] = J[:Tp, :radii][r, r]
+            dTp_dchord[n, r] = J[:Tp, :chord][r, r]
+            dTp_dtheta[n, r] = J[:Tp, :theta][r, r]
         end
 
         dphi_dRhub[n, :] .= J[:phi, :Rhub]
         dphi_dRtip[n, :] .= J[:phi, :Rtip]
-
-        for r in 1:num_radial
-            dphi_dradii[n, r] = J[:phi, :radii][r, r]
-        end
-
-        for r in 1:num_radial
-            dphi_dchord[n, r] = J[:phi, :chord][r, r]
-        end
-
-        for r in 1:num_radial
-            dphi_dtheta[n, r] = J[:phi, :theta][r, r]
-        end
-
         dphi_dv[n, :] .= J[:phi, :v]
         dphi_domega[n, :] .= J[:phi, :omega]
         dphi_dpitch[n, :] .= J[:phi, :pitch]
+
+        dNp_dRhub[n, :] .= J[:Np, :Rhub]
+        dNp_dRtip[n, :] .= J[:Np, :Rtip]
+        dNp_dv[n, :] .= J[:Np, :v]
+        dNp_domega[n, :] .= J[:Np, :omega]
+        dNp_dpitch[n, :] .= J[:Np, :pitch]
+
+        dTp_dRhub[n, :] .= J[:Tp, :Rhub]
+        dTp_dRtip[n, :] .= J[:Tp, :Rtip]
+        dTp_dv[n, :] .= J[:Tp, :v]
+        dTp_domega[n, :] .= J[:Tp, :omega]
+        dTp_dpitch[n, :] .= J[:Tp, :pitch]
 
         dthrust_dphi[n, :] .= J[:thrust, :phi]
         dthrust_dRhub[n] = J[:thrust, :Rhub]

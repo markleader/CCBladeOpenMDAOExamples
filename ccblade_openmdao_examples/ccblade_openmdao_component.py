@@ -6,6 +6,6 @@ from julia import Main
 # should have access to BEMTRotorComp.
 script_dir = os.path.dirname(os.path.realpath(__file__))
 Main.include(os.path.join(script_dir, "ccblade_openmdao_component.jl"))
-Main.include(CCBlade)
+#Main.include(CCBlade)
 BEMTRotorComp = Main.BEMTRotorComp
 BEMTRotorCAComp = Main.BEMTRotorCAComp
