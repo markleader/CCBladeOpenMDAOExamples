@@ -4,6 +4,7 @@ import matplotlib.pyplot as plt
 import matplotlib.ticker as mticker
 
 import openmdao.api as om
+from openmdao.devtools import iprofile
 from julia.OpenMDAO import make_component
 from julia import CCBladeLoadingExample
 from paropt.paropt_driver import ParOptDriver
@@ -11,33 +12,6 @@ from paropt.paropt_driver import ParOptDriver
 from ccblade_openmdao_examples.structural_group import StructuralGroup
 from ccblade_openmdao_examples.gxbeam_openmdao_component import MassComp
 
-def NACA0012(z):
-    # For relative chord dimension z in [0, 1], return the +/- relative
-    # thickness coordinates of a NACA 0012 airfoil
-
-    y = 0.594689181*(0.298222773 *(z^0.5) - 0.127125232 *z - 0.357907906 *(z^2) + 0.291984971 *(z^3) - 0.105174606 *(z^4))
-
-    return y
-
-def write_stl(x, chord, twist, num_segs_per_elem=10):
-
-    # Compute the points
-    span = 12.0*0.0254
-    nelems = len(x)-1
-    dl = span/nelems
-    xe = np.array(x[0:-1]) + dl/2 # x-location of each element midpoint
-
-    # Mesh the points
-    num_chord_pts = 20
-    z = np.linspace(0.0, 1.0, num_chord_pts)
-   #  for i in range(nelems):
-   #      for j in range(num_segs_per_elem):
-
-
-
-    # Write out the stl file
-
-    return
 
 def get_problem():
 
@@ -49,7 +23,7 @@ def get_problem():
 
     # Initialize the design variables
     chord = 1.0*np.ones(nelems)  # (inch)
-    twist = (45.0*np.pi/180.0)*np.ones(nelems)  # (rad)
+    theta = (45.0*np.pi/180.0)*np.ones(nelems)  # (rad)
 
     # Define the angular rotation
     rpm = 7110.0
@@ -62,12 +36,12 @@ def get_problem():
     ivc.add_output("Tp", Tp, units="N/m")
     ivc.add_output("Np", Np, units="N/m")
     ivc.add_output("chord", chord, units="inch")
-    ivc.add_output("twist", twist, units="rad")
+    ivc.add_output("theta", theta, units="rad")
     prob.model.add_subsystem("ivc", ivc, promotes=["*"])
 
     struc_group = StructuralGroup(nnodes=nnodes, num_stress_eval_points=num_stress_eval_points)
     prob.model.add_subsystem("structural_group", struc_group,
-                             promotes_inputs=["omega", "Tp", "Np", "chord", "twist"],
+                             promotes_inputs=["omega", "Tp", "Np", "chord", "theta"],
                              promotes_outputs=["sigma1", "m"])
 
     # Aggregate the stress
@@ -76,33 +50,36 @@ def get_problem():
                                              units=None))
     prob.model.connect('sigma1', 'ks.g')
 
+    # prob.driver = om.pyOptSparseDriver(optimizer="SNOPT")
+    # prob.driver.opt_settings['Major iterations limit'] = 5
+
     prob.driver = ParOptDriver()
 
-    # Set the optimization options
-    options = {'algorithm': 'tr',
-               'tr_max_size': 0.1,
-               #'tr_min_size': 1e-4,
-               'tr_adaptive_gamma_update': True,
-               'qn_diag_type': 'yts_over_sts',
-               'tr_use_soc': True,
-               'tr_max_iterations': 1000,
-               'penalty_gamma': 5.0,
-               'tr_penalty_gamma_max': 10.0,
-               'qn_subspace_size': 20,
-               'qn_type': 'bfgs',
-               'abs_res_tol': 1e-8,
-               'starting_point_strategy': 'affine_step',
-               'barrier_strategy': 'mehrotra_predictor_corrector',
-               'use_line_search': False,
-               'max_major_iters': 200}
-    for key in options:
-        prob.driver.options[key] = options[key]
+    # # Set the optimization options
+    # options = {'algorithm': 'tr',
+    #            'tr_max_size': 0.1,
+    #            #'tr_min_size': 1e-4,
+    #            'tr_adaptive_gamma_update': True,
+    #            'qn_diag_type': 'yts_over_sts',
+    #            'tr_use_soc': True,
+    #            'tr_max_iterations': 1000,
+    #            'penalty_gamma': 5.0,
+    #            'tr_penalty_gamma_max': 10.0,
+    #            'qn_subspace_size': 20,
+    #            'qn_type': 'bfgs',
+    #            'abs_res_tol': 1e-8,
+    #            'starting_point_strategy': 'affine_step',
+    #            'barrier_strategy': 'mehrotra_predictor_corrector',
+    #            'use_line_search': False,
+    #            'max_major_iters': 200}
+    # for key in options:
+    #     prob.driver.options[key] = options[key]
 
     # Lower and upper limits on the chord design variable, in inches.
     chord_lower = 0.5
     chord_upper = 2.0
 
-    # Lower and upper limits on the twist design variable, radians.
+    # Lower and upper limits on the theta design variable, radians.
     theta_lower =  0.0*np.pi/180.0
     theta_upper =  85.0*np.pi/180.0
 
@@ -111,7 +88,7 @@ def get_problem():
     m_max = 2600.0 * ((chord_upper/100.0)**2) * 821.8 * 12.0*0.0254 # maximum possible mass = rho * (c_max/c_ref)^2 * A_ref * span
 
     prob.model.add_design_var("chord", lower=chord_lower, upper=chord_upper, ref=1e0, units="inch")
-    prob.model.add_design_var("twist", lower=theta_lower, upper=theta_upper, ref=1e0, units="rad")
+    prob.model.add_design_var("theta", lower=theta_lower, upper=theta_upper, ref=1e0, units="rad")
 
     # Stress-constrained mass minimization
     prob.model.add_objective("m", ref=1e-2)
@@ -127,11 +104,19 @@ def get_problem():
 
 
 if __name__ == "__main__":
+
+    # iprofile.setup()
+    # iprofile.start()
+
     x, p, Np, Tp = get_problem()
-    p.run_driver()
+    #p.run_driver()
+    p.run_model()
+    totals = p.compute_totals()
+    print(totals)
+    # iprofile.stop()
 
     chord = p.get_val("chord", units="inch")
-    theta = p.get_val("twist", units="deg")
+    theta = p.get_val("theta", units="deg")
     print("mass = ", p.get_val("m", units="kg"))
     print("KS(sigma1)/sigma_y = ", p.get_val("ks.KS"))
     print("max(sigma1) = ", np.amax(p.get_val("sigma1")))
@@ -164,7 +149,7 @@ if __name__ == "__main__":
 
     ax0.set_ylabel('Chord (in)')
     ax1.set_xlabel(r'$x_1$ (in)')
-    ax1.set_ylabel('Twist (deg.)')
+    ax1.set_ylabel('theta (deg.)')
 
     plt.savefig("chord_theta.pdf", transparent=True)
 
