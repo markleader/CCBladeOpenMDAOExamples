@@ -18,7 +18,7 @@ using OpenMDAO: AbstractExplicitComp
     forwarddiff_config
 end
 
-function create_assembly(; points, Tp, Np, omega, chord, twist, A, Iyy, Izz, Iyz, rho, E, nu)
+function create_assembly(; points, Tp, Np, omega, chord, theta, A, Iyy, Izz, Iyz, rho, E, nu)
 
     x = [points[i, 1][1] for i = 1:length(points)]
     nelems = length(points)-1
@@ -27,7 +27,7 @@ function create_assembly(; points, Tp, Np, omega, chord, twist, A, Iyy, Izz, Iyz
 
     G = E/(2*(1 + nu))
 
-    x3c = 0.17*cos.(twist).*chord
+    x3c = 0.17*cos.(theta).*chord
     ky = 10*(1 + nu)/(12 + 11*nu)
     kz = 10*(1 + nu)/(12 + 11*nu)
 
@@ -114,7 +114,7 @@ function SolverComp(; rho, E, nu, span, nnodes)
         Np = x[:Np]
         Tp = x[:Tp]
         chord = x[:chord]
-        twist = x[:twist]
+        theta = x[:theta]
         A = x[:A]
         Iyy = x[:Iyy]
         Izz = x[:Izz]
@@ -131,7 +131,7 @@ function SolverComp(; rho, E, nu, span, nnodes)
         points = [[xpts[i], ypts[i], zpts[i]] for i = 1:nnodes]
 
         assembly, system = create_assembly(points=points, omega=omega,
-                                           Tp=Tp, Np=Np, chord=chord, twist=twist,
+                                           Tp=Tp, Np=Np, chord=chord, theta=theta,
                                            A=A, Iyy=Iyy, Izz=Izz, Iyz=Iyz,
                                            rho=rho, E=E, nu=nu)
 
@@ -151,7 +151,7 @@ function SolverComp(; rho, E, nu, span, nnodes)
     # Initialize the input and output vectors needed by ForwardDiff.jl.
     X = ComponentArray(
         omega=0.0, Np=zeros(Float64, nnodes), Tp=zeros(Float64, nnodes),
-        chord=zeros(Float64, nelems), twist=zeros(Float64, nelems),
+        chord=zeros(Float64, nelems), theta=zeros(Float64, nelems),
         A=zeros(Float64, nelems), Iyy=zeros(Float64, nelems),
         Izz=zeros(Float64, nelems), Iyz=zeros(Float64, nelems))
     Y = ComponentArray(
@@ -175,7 +175,7 @@ function OpenMDAO.setup(self::SolverComp)
     push!(input_data, VarData("Tp", shape=self.nnodes, units="N/m"))
     push!(input_data, VarData("Np", shape=self.nnodes, units="N/m"))
     push!(input_data, VarData("chord", shape=nelems, units="m"))
-    push!(input_data, VarData("twist", shape=nelems, units="rad"))
+    push!(input_data, VarData("theta", shape=nelems, units="rad"))
     push!(input_data, VarData("A", shape=nelems, units="m**2"))
     push!(input_data, VarData("Iyy", shape=nelems, units="m**4"))
     push!(input_data, VarData("Izz", shape=nelems, units="m**4"))
@@ -197,7 +197,7 @@ function OpenMDAO.setup(self::SolverComp)
     push!(partials_data, PartialsData("My", "Tp"))
     push!(partials_data, PartialsData("My", "Np"))
     push!(partials_data, PartialsData("My", "chord"))
-    push!(partials_data, PartialsData("My", "twist"))
+    push!(partials_data, PartialsData("My", "theta"))
     push!(partials_data, PartialsData("My", "A"))
     push!(partials_data, PartialsData("My", "Iyy"))
     push!(partials_data, PartialsData("My", "Izz"))
@@ -207,7 +207,7 @@ function OpenMDAO.setup(self::SolverComp)
     push!(partials_data, PartialsData("Mz", "Tp"))
     push!(partials_data, PartialsData("Mz", "Np"))
     push!(partials_data, PartialsData("Mz", "chord"))
-    push!(partials_data, PartialsData("Mz", "twist"))
+    push!(partials_data, PartialsData("Mz", "theta"))
     push!(partials_data, PartialsData("Mz", "A"))
     push!(partials_data, PartialsData("Mz", "Iyy"))
     push!(partials_data, PartialsData("Mz", "Izz"))
@@ -223,7 +223,7 @@ function OpenMDAO.compute!(self::SolverComp, inputs, outputs)
     Np = inputs["Np"]
     Tp = inputs["Tp"]
     chord = inputs["chord"]
-    twist = inputs["twist"]
+    theta = inputs["theta"]
     A = inputs["A"]
     Iyy = inputs["Iyy"]
     Izz = inputs["Izz"]
@@ -244,7 +244,7 @@ function OpenMDAO.compute!(self::SolverComp, inputs, outputs)
     points = [[xpts[i], ypts[i], zpts[i]] for i = 1:self.nnodes]
 
     assembly, system = create_assembly(points=points, omega=omega,
-                                       Tp=Tp, Np=Np, chord=chord, twist=twist,
+                                       Tp=Tp, Np=Np, chord=chord, theta=theta,
                                        A=A, Iyy=Iyy, Izz=Izz, Iyz=Iyz,
                                        rho=rho, E=E, nu=nu)
 
@@ -268,7 +268,7 @@ function OpenMDAO.compute_partials!(self::SolverComp, inputs, partials)
     Np = inputs["Np"]
     Tp = inputs["Tp"]
     chord = inputs["chord"]
-    twist = inputs["twist"]
+    theta = inputs["theta"]
     A = inputs["A"]
     Iyy = inputs["Iyy"]
     Izz = inputs["Izz"]
@@ -284,7 +284,7 @@ function OpenMDAO.compute_partials!(self::SolverComp, inputs, partials)
     x[:Np] .= Np
     x[:Tp] .= Tp
     x[:chord] .= chord
-    x[:twist] .= twist
+    x[:theta] .= theta
     x[:A] .= A
     x[:Iyy] .= Iyy
     x[:Izz] .= Izz
@@ -298,7 +298,7 @@ function OpenMDAO.compute_partials!(self::SolverComp, inputs, partials)
     dMy_dTp = partials["My", "Tp"]
     dMy_dNp = partials["My", "Np"]
     dMy_dchord = partials["My", "chord"]
-    dMy_dtwist = partials["My", "twist"]
+    dMy_dtheta = partials["My", "theta"]
     dMy_dA = partials["My", "A"]
     dMy_dIyy = partials["My", "Iyy"]
     dMy_dIzz = partials["My", "Izz"]
@@ -308,7 +308,7 @@ function OpenMDAO.compute_partials!(self::SolverComp, inputs, partials)
     dMz_dTp = partials["Mz", "Tp"]
     dMz_dNp = partials["Mz", "Np"]
     dMz_dchord = partials["Mz", "chord"]
-    dMz_dtwist = partials["Mz", "twist"]
+    dMz_dtheta = partials["Mz", "theta"]
     dMz_dA = partials["Mz", "A"]
     dMz_dIyy = partials["Mz", "Iyy"]
     dMz_dIzz = partials["Mz", "Izz"]
@@ -325,7 +325,7 @@ function OpenMDAO.compute_partials!(self::SolverComp, inputs, partials)
     dMy_dNp .= J[:My, :Np]
     dMy_dA .= J[:My, :A]
     dMy_dchord .= J[:My, :chord]
-    dMy_dtwist .= J[:My, :twist]
+    dMy_dtheta .= J[:My, :theta]
     dMy_dIyy .= J[:My, :Iyy]
     dMy_dIzz .= J[:My, :Izz]
     dMy_dIyz .= J[:My, :Iyz]
@@ -334,7 +334,7 @@ function OpenMDAO.compute_partials!(self::SolverComp, inputs, partials)
     dMz_dTp .= J[:Mz, :Tp]
     dMz_dNp .= J[:Mz, :Np]
     dMz_dchord .= J[:Mz, :chord]
-    dMz_dtwist .= J[:Mz, :twist]
+    dMz_dtheta .= J[:Mz, :theta]
     dMz_dA .= J[:Mz, :A]
     dMz_dIyy .= J[:Mz, :Iyy]
     dMz_dIzz .= J[:Mz, :Izz]

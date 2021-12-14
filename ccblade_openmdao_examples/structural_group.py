@@ -49,7 +49,7 @@ class StructuralGroup(om.Group):
 
         self.add_subsystem(name="stress_comp",
                            subsys=stress_comp,
-                           promotes_inputs=["chord", "twist", "A", "Iyy", "Izz", "Iyz"],
+                           promotes_inputs=["chord", "theta", "A", "Iyy", "Izz", "Iyz"],
                            promotes_outputs=["sigma1"])
 
         self.add_subsystem(name="mass_comp",

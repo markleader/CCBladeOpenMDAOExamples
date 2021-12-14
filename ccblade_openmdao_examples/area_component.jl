@@ -18,7 +18,7 @@ function OpenMDAO.setup(self::AreaComp)
     # Declare the OpenMDAO inputs.
     input_data = Vector{VarData}()
     push!(input_data, VarData("chord", shape=self.nelems, units="m"))
-    push!(input_data, VarData("twist", shape=self.nelems, units="rad"))
+    push!(input_data, VarData("theta", shape=self.nelems, units="rad"))
 
     # Declare the OpenMDAO outputs.
     output_data = Vector{VarData}()
@@ -33,11 +33,11 @@ function OpenMDAO.setup(self::AreaComp)
     cols = rows
     push!(partials_data, PartialsData("A", "chord", rows=rows, cols=cols))
     push!(partials_data, PartialsData("Iyy", "chord", rows=rows, cols=cols))
-    push!(partials_data, PartialsData("Iyy", "twist", rows=rows, cols=cols))
+    push!(partials_data, PartialsData("Iyy", "theta", rows=rows, cols=cols))
     push!(partials_data, PartialsData("Izz", "chord", rows=rows, cols=cols))
-    push!(partials_data, PartialsData("Izz", "twist", rows=rows, cols=cols))
+    push!(partials_data, PartialsData("Izz", "theta", rows=rows, cols=cols))
     push!(partials_data, PartialsData("Iyz", "chord", rows=rows, cols=cols))
-    push!(partials_data, PartialsData("Iyz", "twist", rows=rows, cols=cols))
+    push!(partials_data, PartialsData("Iyz", "theta", rows=rows, cols=cols))
 
     return input_data, output_data, partials_data
 end
@@ -46,7 +46,7 @@ function OpenMDAO.compute!(self::AreaComp, inputs, outputs)
 
     # Unpack the inputs.
     chord = inputs["chord"]
-    twist = inputs["twist"]
+    theta = inputs["theta"]
 
     # Unpack the outputs.
     A = outputs["A"]
@@ -54,10 +54,10 @@ function OpenMDAO.compute!(self::AreaComp, inputs, outputs)
     Izz = outputs["Izz"]
     Iyz = outputs["Iyz"]
 
-    s = sin.(twist)
-    c = cos.(twist)
-    s2 = sin.(twist).^2
-    c2 = cos.(twist).^2
+    s = sin.(theta)
+    c = cos.(theta)
+    s2 = sin.(theta).^2
+    c2 = cos.(theta).^2
 
     k = chord/100  # scale factor
     A[1:end] = (k.^2)*self.A_ref
@@ -73,18 +73,18 @@ function OpenMDAO.compute_partials!(self::AreaComp, inputs, partials)
 
     # Unpack the inputs.
     chord = inputs["chord"]
-    twist = inputs["twist"]
+    theta = inputs["theta"]
 
     dA_dc = partials["A", "chord"]
     dIyy_dc = partials["Iyy", "chord"]
-    dIyy_dtwist = partials["Iyy", "twist"]
+    dIyy_dtheta = partials["Iyy", "theta"]
     dIzz_dc = partials["Izz", "chord"]
-    dIzz_dtwist = partials["Izz", "twist"]
+    dIzz_dtheta = partials["Izz", "theta"]
     dIyz_dc = partials["Iyz", "chord"]
-    dIyz_dtwist = partials["Iyz", "twist"]
+    dIyz_dtheta = partials["Iyz", "theta"]
 
-    s = sin.(twist)
-    c = cos.(twist)
+    s = sin.(theta)
+    c = cos.(theta)
     s2 = s.^2
     c2 = c.^2
 
@@ -94,7 +94,7 @@ function OpenMDAO.compute_partials!(self::AreaComp, inputs, partials)
     Izz0 = (k.^4)*self.Izz_ref
     Iyy = @. c2 *Iyy0 + s2 *Izz0
     Izz = @. s2 *Iyy0 + c2 *Izz0
-    Iyz = @. (Iyy0 - Izz0)*s*c
+    Iyz = @. (Izz0 - Iyy0)*s*c
 
     ds2 = @. 2 *s*c
     dc2 = @. -2 *s*c
@@ -105,9 +105,9 @@ function OpenMDAO.compute_partials!(self::AreaComp, inputs, partials)
 #     dIzz_dc .= (4.0/chord)*Izz
 #     dIyz_dc .= (4.0/chord)*Iyz
 #
-#     dIyy_dtwist .= @. dc2*Iyy0 + ds2*Izz0
-#     dIzz_dtwist .= @. ds2*Iyy0 + dc2*Izz0
-#     dIyz_dtwist .= @. (Iyy0 - Izz0)*dcs
+#     dIyy_dtheta .= @. dc2*Iyy0 + ds2*Izz0
+#     dIzz_dtheta .= @. ds2*Iyy0 + dc2*Izz0
+#     dIyz_dtheta .= @. (Iyy0 - Izz0)*dcs
 
     for i = 1:length(chord)
 
@@ -116,9 +116,9 @@ function OpenMDAO.compute_partials!(self::AreaComp, inputs, partials)
         dIzz_dc[i] = (4.0/chord[i])*Izz[i]
         dIyz_dc[i] = (4.0/chord[i])*Iyz[i]
 
-        dIyy_dtwist[i] = dc2[i]*Iyy0[i] + ds2[i]*Izz0[i]
-        dIzz_dtwist[i] = ds2[i]*Iyy0[i] + dc2[i]*Izz0[i]
-        dIyz_dtwist[i] = (Izz0[i] - Iyy0[i])*dcs[i]
+        dIyy_dtheta[i] = dc2[i]*Iyy0[i] + ds2[i]*Izz0[i]
+        dIzz_dtheta[i] = ds2[i]*Iyy0[i] + dc2[i]*Izz0[i]
+        dIyz_dtheta[i] = (Izz0[i] - Iyy0[i])*dcs[i]
     end
 
 end
