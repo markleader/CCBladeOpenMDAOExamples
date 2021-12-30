@@ -84,14 +84,14 @@ function OpenMDAO.compute!(self::StressComp, inputs, outputs)
     s = sin.(twist)
     c = cos.(twist)
     dI = @. Iyy*Izz - Iyz*Iyz
-    z_rel = collect(range(0.0, 1.0, length=self.num_stress_eval_points)) .- 0.421
-    y1_rel, y2_rel = NACA0012(z_rel .+ 0.421)
+    z_rel = collect(range(0.0, 1.0, length=self.num_stress_eval_points)) .- 0.25
+    y1_rel, y2_rel = NACA0012(z_rel .+ 0.25)
 
     for i = 1:length(chord)
         for j = 1:self.num_stress_eval_points
-            z1 = chord[i]*(z_rel[j]*c[i] + y1_rel[j]*s[i])
+            z1 = chord[i]*( z_rel[j]*c[i] + y1_rel[j]*s[i])
             y1 = chord[i]*(-z_rel[j]*s[i] + y1_rel[j]*c[i])
-            z2 = chord[i]*(z_rel[j]*c[i] + y2_rel[j]*s[i])
+            z2 = chord[i]*( z_rel[j]*c[i] + y2_rel[j]*s[i])
             y2 = chord[i]*(-z_rel[j]*s[i] + y2_rel[j]*c[i])
 
             idx = 2*(i-1)*self.num_stress_eval_points + 2*j - 1
