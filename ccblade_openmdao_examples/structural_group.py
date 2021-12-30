@@ -10,7 +10,7 @@ from ccblade_openmdao_examples.gxbeam_openmdao_component import MassComp
 
 class StructuralGroup(om.Group):
     def initialize(self):
-        self.options.declare("nnodes", types=int)
+        self.options.declare("nelems", types=int)
         self.options.declare("num_stress_eval_points", types=int)
 
         return
@@ -18,9 +18,9 @@ class StructuralGroup(om.Group):
     def setup(self):
 
         num_stress_eval_points = self.options["num_stress_eval_points"]
-        nnodes = self.options["nnodes"]
-        nelems = nnodes-1
+        nelems = self.options["nelems"]
         span = 12.0*0.0254
+        Rhub = 0.2*span
         ys = 345e6
 
         area_comp = make_component(
@@ -29,7 +29,7 @@ class StructuralGroup(om.Group):
 
         solver_comp = make_component(
             SolverComp(
-                rho=2780.0, E=72.4e9, nu=0.33, span=span, nnodes=nnodes))
+                rho=2780.0, E=72.4e9, nu=0.33, Rhub=Rhub, span=span, nelems=nelems))
 
         stress_comp = make_component(
             StressComp(

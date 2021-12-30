@@ -9,8 +9,9 @@ using OpenMDAO: AbstractExplicitComp
     rho
     E
     nu
+    Rhub
     span
-    nnodes
+    nelems
     apply_nonlinear_forwarddiffable!
     x
     y
@@ -70,17 +71,17 @@ function create_assembly(; points, Tp, Np, omega, chord, twist, A, Iyy, Izz, Iyz
     function interp_aero_force(x, radii, f_aero)
         # Linearly interpolate the aerodynamic loads
         # x: coordinate where we want to evaluate the force
-        # radii: vector with coordinates corresponding to aero force vector
+        # radii: x locations of nodes
         # f_aero: vector with aero forces
 
         if x < radii[1] || x >= radii[end]  # x not in range of radii
             q = 0
-        elseif x == radii[1]  # to prevent dividing by zero
+        elseif x == radii[1]
             q = f_aero[1]
         else
             k = findfirst(radii .>= x)
             j = k - 1
-            q = f_aero[j] + (x - radii[j])*(f_aero[k] - f_aero[j])/(radii[k] - radii[j])
+            q = f_aero[j]
         end
 
         return q
@@ -101,10 +102,7 @@ function create_assembly(; points, Tp, Np, omega, chord, twist, A, Iyy, Izz, Iyz
     return assembly, system
 end
 
-function SolverComp(; rho, E, nu, span, nnodes)
-
-    # create the points
-    nelems = nnodes-1
+function SolverComp(; rho, E, nu, Rhub, span, nelems)
 
     function apply_nonlinear_forwarddiffable!(y, x)
         T = eltype(x)
@@ -120,15 +118,15 @@ function SolverComp(; rho, E, nu, span, nnodes)
         Izz = x[:Izz]
         Iyz = x[:Iyz]
 
-        xpts = zeros(T, nnodes)
-        xvals = collect(range(0.06, span, length=nnodes))
-        for i = 1:nnodes
+        xpts = zeros(T, nelems+1)
+        xvals = collect(range(Rhub, span, length=nelems+1))
+        for i = 1:(nelems+1)
             xpts[i] = xvals[i]
         end
 
         ypts = zero(xpts)
         zpts = zero(xpts)
-        points = [[xpts[i], ypts[i], zpts[i]] for i = 1:nnodes]
+        points = [[xpts[i], ypts[i], zpts[i]] for i = 1:(nelems+1)]
 
         assembly, system = create_assembly(points=points, omega=omega,
                                            Tp=Tp, Np=Np, chord=chord, twist=twist,
@@ -150,7 +148,7 @@ function SolverComp(; rho, E, nu, span, nnodes)
 
     # Initialize the input and output vectors needed by ForwardDiff.jl.
     X = ComponentArray(
-        omega=0.0, Np=zeros(Float64, nnodes), Tp=zeros(Float64, nnodes),
+        omega=0.0, Np=zeros(Float64, nelems), Tp=zeros(Float64, nelems),
         chord=zeros(Float64, nelems), twist=zeros(Float64, nelems),
         A=zeros(Float64, nelems), Iyy=zeros(Float64, nelems),
         Izz=zeros(Float64, nelems), Iyz=zeros(Float64, nelems))
@@ -162,18 +160,18 @@ function SolverComp(; rho, E, nu, span, nnodes)
     # the ForwardDiff.jacobian! function (apparently good for efficiency).
     config = ForwardDiff.JacobianConfig(apply_nonlinear_forwarddiffable!, Y, X)
 
-    return SolverComp(rho, E, nu, span, nnodes, apply_nonlinear_forwarddiffable!, X, Y, J, config)
+    return SolverComp(rho, E, nu, Rhub, span, nelems, apply_nonlinear_forwarddiffable!, X, Y, J, config)
 end
 
 function OpenMDAO.setup(self::SolverComp)
 
-    nelems = self.nnodes-1
+    nelems = self.nelems
 
     # Declare the OpenMDAO inputs.
     input_data = Vector{VarData}()
     push!(input_data, VarData("omega", shape=1, units="rad/s"))
-    push!(input_data, VarData("Tp", shape=self.nnodes, units="N/m"))
-    push!(input_data, VarData("Np", shape=self.nnodes, units="N/m"))
+    push!(input_data, VarData("Tp", shape=nelems, units="N/m"))
+    push!(input_data, VarData("Np", shape=nelems, units="N/m"))
     push!(input_data, VarData("chord", shape=nelems, units="m"))
     push!(input_data, VarData("twist", shape=nelems, units="rad"))
     push!(input_data, VarData("A", shape=nelems, units="m**2"))
@@ -238,10 +236,10 @@ function OpenMDAO.compute!(self::SolverComp, inputs, outputs)
     rho = self.rho
     nu = self.nu
 
-    xpts = collect(range(0.06, self.span, length=self.nnodes))
+    xpts = collect(range(self.Rhub, self.span, length=self.nelems+1))
     ypts = zero(xpts)
     zpts = zero(xpts)
-    points = [[xpts[i], ypts[i], zpts[i]] for i = 1:self.nnodes]
+    points = [[xpts[i], ypts[i], zpts[i]] for i = 1:(self.nelems+1)]
 
     assembly, system = create_assembly(points=points, omega=omega,
                                        Tp=Tp, Np=Np, chord=chord, twist=twist,
@@ -261,7 +259,7 @@ end
 
 function OpenMDAO.compute_partials!(self::SolverComp, inputs, partials)
 
-    nelems = self.nnodes-1
+    nelems = self.nelems
 
     # Unpack the inputs.
     omega = inputs["omega"][1]
