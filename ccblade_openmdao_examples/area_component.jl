@@ -94,7 +94,7 @@ function OpenMDAO.compute_partials!(self::AreaComp, inputs, partials)
     Izz0 = (k.^4)*self.Izz_ref
     Iyy = @. c2 *Iyy0 + s2 *Izz0
     Izz = @. s2 *Iyy0 + c2 *Izz0
-    Iyz = @. (Iyy0 - Izz0)*s*c
+    Iyz = @. (Izz0 - Iyy0)*s*c
 
     ds2 = @. 2 *s*c
     dc2 = @. -2 *s*c
