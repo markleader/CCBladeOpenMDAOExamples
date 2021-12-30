@@ -54,20 +54,21 @@ prob.model.add_subsystem("ivc", ivc, promotes=["*"])
 area_comp = make_component(StressComp(nelems=nelems, num_stress_eval_points=50, ys=345e6))
 prob.model.add_subsystem("stress_comp", area_comp, promotes=["*"])
 
-prob.setup()
+prob.setup(force_alloc_complex=true)
 prob.run_model()
-prob.check_partials(compact_print=true)
+prob.check_partials(compact_print=false, method="cs")
 
 include("gxbeam_component.jl")
 
 prob = om.Problem()
 
 span = 0.3
+Rhub = 0.2*span
 nelems = 10
 omega = 7110.0*2*pi/60
-#x = collect(range(0.06, span, length=nelems+1))
-Tp = collect(range(10.0, 50.0, length=nelems+1))
-Np = collect(range(10.0, 200.0, length=nelems+1))
+xe = collect(range(Rhub, span, length=nelems))
+Tp = collect(range(10.0, 50.0, length=nelems))
+Np = collect(range(10.0, 200.0, length=nelems))
 chord = collect(range(1.5*0.0254, 0.5*0.0254, length=nelems))
 twist = collect(range(1.0, 0.0, length=nelems))
 
@@ -96,7 +97,7 @@ ivc.add_output("Izz", Izz, units="m**4")
 ivc.add_output("Iyz", Iyz, units="m**4")
 prob.model.add_subsystem("ivc", ivc, promotes=["*"])
 
-solver_comp = make_component(SolverComp(rho=2600.0, E=70e9, nu=0.33, span=span, nnodes=nelems+1))
+solver_comp = make_component(SolverComp(rho=2780.0, E=72.4e9, nu=0.33, Rhub=Rhub, span=span, nelems=nelems))
 prob.model.add_subsystem("solver_comp", solver_comp, promotes=["*"])
 
 # prob.setup()
