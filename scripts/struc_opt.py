@@ -143,7 +143,7 @@ def get_problem_w_splines(optimizer="SNOPT"):
 
     struc_group = StructuralGroup(nelems=nelems, num_stress_eval_points=num_stress_eval_points)
     prob.model.add_subsystem("structural_group", struc_group,
-                             promotes_inputs=["omega", "Tp", "Np", "chord", "twist"],
+                             promotes_inputs=["omega", "Tp", "Np", "chord", "theta"],
                              promotes_outputs=["sigma1", "m"])
 
     # Aggregate the stress

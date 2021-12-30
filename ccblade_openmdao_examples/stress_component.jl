@@ -29,7 +29,7 @@ function OpenMDAO.setup(self::StressComp)
     push!(input_data, VarData("My", shape=self.nelems, units="N*m"))
     push!(input_data, VarData("Mz", shape=self.nelems, units="N*m"))
     push!(input_data, VarData("chord", shape=self.nelems, units="m"))
-    push!(input_data, VarData("twist", shape=self.nelems, units="rad"))
+    push!(input_data, VarData("theta", shape=self.nelems, units="rad"))
     push!(input_data, VarData("A", shape=self.nelems, units="m**2"))
     push!(input_data, VarData("Iyy", shape=self.nelems, units="m**4"))
     push!(input_data, VarData("Izz", shape=self.nelems, units="m**4"))
@@ -56,7 +56,7 @@ function OpenMDAO.setup(self::StressComp)
     push!(partials_data, PartialsData("sigma1", "My", rows=rows, cols=cols))
     push!(partials_data, PartialsData("sigma1", "Mz", rows=rows, cols=cols))
     push!(partials_data, PartialsData("sigma1", "chord", rows=rows, cols=cols))
-    push!(partials_data, PartialsData("sigma1", "twist", rows=rows, cols=cols))
+    push!(partials_data, PartialsData("sigma1", "theta", rows=rows, cols=cols))
     push!(partials_data, PartialsData("sigma1", "A", rows=rows, cols=cols))
     push!(partials_data, PartialsData("sigma1", "Iyy", rows=rows, cols=cols))
     push!(partials_data, PartialsData("sigma1", "Izz", rows=rows, cols=cols))
@@ -72,7 +72,7 @@ function OpenMDAO.compute!(self::StressComp, inputs, outputs)
     My = inputs["My"]
     Mz = inputs["Mz"]
     chord = inputs["chord"]
-    twist = inputs["twist"]
+    theta = inputs["theta"]
     A = inputs["A"]
     Iyy = inputs["Iyy"]
     Izz = inputs["Izz"]
@@ -81,8 +81,8 @@ function OpenMDAO.compute!(self::StressComp, inputs, outputs)
     # Unpack the outputs.
     sigma1 = outputs["sigma1"]
 
-    s = sin.(twist)
-    c = cos.(twist)
+    s = sin.(theta)
+    c = cos.(theta)
     dI = @. Iyy*Izz - Iyz*Iyz
     z_rel = collect(range(0.0, 1.0, length=self.num_stress_eval_points)) .- 0.25
     y1_rel, y2_rel = NACA0012(z_rel .+ 0.25)
@@ -110,7 +110,7 @@ function OpenMDAO.compute_partials!(self::StressComp, inputs, partials)
     My = inputs["My"]
     Mz = inputs["Mz"]
     chord = inputs["chord"]
-    twist = inputs["twist"]
+    theta = inputs["theta"]
     A = inputs["A"]
     Iyy = inputs["Iyy"]
     Izz = inputs["Izz"]
@@ -120,14 +120,14 @@ function OpenMDAO.compute_partials!(self::StressComp, inputs, partials)
     ds_dMy = partials["sigma1", "My"]
     ds_dMz = partials["sigma1", "Mz"]
     ds_dc = partials["sigma1", "chord"]
-    ds_dtheta = partials["sigma1", "twist"]
+    ds_dtheta = partials["sigma1", "theta"]
     ds_dA = partials["sigma1", "A"]
     ds_dIyy = partials["sigma1", "Iyy"]
     ds_dIzz = partials["sigma1", "Izz"]
     ds_dIyz = partials["sigma1", "Iyz"]
 
-    s = sin.(twist)
-    c = cos.(twist)
+    s = sin.(theta)
+    c = cos.(theta)
     dI = @. Iyy*Izz - Iyz*Iyz
     z_rel = range(0.0, 1.0, length=self.num_stress_eval_points) .- 0.25
     y1_rel, y2_rel = NACA0012(z_rel .+ 0.25)
