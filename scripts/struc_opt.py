@@ -5,6 +5,7 @@ import matplotlib.ticker as mticker
 
 import openmdao.api as om
 from openmdao.devtools import iprofile
+from openmdao.utils.spline_distributions import cell_centered
 from julia.OpenMDAO import make_component
 from julia import CCBladeLoadingExample
 from paropt.paropt_driver import ParOptDriver
@@ -13,7 +14,7 @@ from ccblade_openmdao_examples.structural_group import StructuralGroup
 from ccblade_openmdao_examples.gxbeam_openmdao_component import MassComp
 
 
-def get_problem():
+def get_problem(optimizer="SNOPT"):
 
     # Propeller dimensions
     D = 24.0*0.0254  # Diameter in meters.
@@ -54,29 +55,30 @@ def get_problem():
                                              units=None))
     prob.model.connect("sigma1", "ks.g")
 
-    #prob.driver = ParOptDriver()
+    if optimizer == "SNOPT":
+        prob.driver = om.pyOptSparseDriver(optimizer="SNOPT")
+    else:  # use ParOpt
+        prob.driver = ParOptDriver()
 
-    # # Set the optimization options
-    # options = {"algorithm": "tr",
-    #            "tr_max_size": 0.1,
-    #            #"tr_min_size": 1e-4,
-    #            "tr_adaptive_gamma_update": True,
-    #            "qn_diag_type": "yts_over_sts",
-    #            "tr_use_soc": True,
-    #            "tr_max_iterations": 1000,
-    #            "penalty_gamma": 5.0,
-    #            "tr_penalty_gamma_max": 10.0,
-    #            "qn_subspace_size": 20,
-    #            "qn_type": "bfgs",
-    #            "abs_res_tol": 1e-8,
-    #            "starting_point_strategy": "affine_step",
-    #            "barrier_strategy": "mehrotra_predictor_corrector",
-    #            "use_line_search": False,
-    #            "max_major_iters": 200}
-    # for key in options:
-    #     prob.driver.options[key] = options[key]
-
-    prob.driver = om.pyOptSparseDriver(optimizer="SNOPT")
+        # Set the optimization options
+        options = {"algorithm": "tr",
+                "tr_max_size": 0.1,
+                #"tr_min_size": 1e-4,
+                "tr_adaptive_gamma_update": True,
+                "qn_diag_type": "yts_over_sts",
+                "tr_use_soc": True,
+                "tr_max_iterations": 1000,
+                "penalty_gamma": 5.0,
+                "tr_penalty_gamma_max": 10.0,
+                "qn_subspace_size": 20,
+                "qn_type": "bfgs",
+                "abs_res_tol": 1e-8,
+                "starting_point_strategy": "affine_step",
+                "barrier_strategy": "mehrotra_predictor_corrector",
+                "use_line_search": False,
+                "max_major_iters": 200}
+        for key in options:
+            prob.driver.options[key] = options[key]
 
     # Lower and upper limits on the chord design variable, in inches.
     chord_lower = 0.5
@@ -84,23 +86,124 @@ def get_problem():
 
     # Lower and upper limits on the twist design variable, radians.
     theta_lower =  0.0*np.pi/180.0
-    theta_upper =  90.0*np.pi/180.0
+    theta_upper =  85.0*np.pi/180.0
 
-    prob.model.add_design_var("chord", lower=chord_lower, upper=chord_upper, ref=1e0, units="inch")
-    prob.model.add_design_var("twist", lower=theta_lower, upper=theta_upper, ref=1e0, units="rad")
+    prob.model.add_design_var("chord", lower=chord_lower, upper=chord_upper, units="inch")
+    prob.model.add_design_var("twist", lower=theta_lower, upper=theta_upper, units="rad")
 
     # Stress-constrained mass minimization
     prob.model.add_objective("m", ref=1e-2)
-    prob.model.add_constraint("ks.KS", upper=1.0, ref=1e0)
+    prob.model.add_constraint("ks.KS", upper=1.0)
 
     prob.setup()
+    om.n2(prob, show_browser=False, outfile='struc_opt.html')
 
     return x, prob, Np, Tp
 
-def run_optimization():
+def get_problem_w_splines(optimizer="SNOPT"):
+
+    # Propeller dimensions
+    D = 24.0*0.0254  # Diameter in meters.
+    Rtip = 0.5*D
+    Rhub = 0.2*Rtip  # Just guessing on the hub diameter.
+
+    # Compute the aerodynamic loads
+    x, Np, Tp = CCBladeLoadingExample.run_ccblade()
+    nelems = len(x)
+    num_stress_eval_points = 20
+
+    # Initialize the design variables
+    num_cp = 8
+    chord_cp0 = 1.0*np.ones(num_cp)  # (inch)
+    twist_cp0 = (45.0*np.pi/180.0)*np.ones(num_cp)  # (rad)
+
+    # Define the angular rotation
+    rpm = 7110.0
+    omega = rpm*2*np.pi/60
+
+    prob = om.Problem()
+
+    ivc = om.IndepVarComp()
+    ivc.add_output("omega", omega, units="rad/s")
+    ivc.add_output("Tp", Tp, units="N/m")
+    ivc.add_output("Np", Np, units="N/m")
+    ivc.add_output("chord_cp", chord_cp0, units="inch")
+    ivc.add_output("twist_cp", twist_cp0, units="rad")
+    prob.model.add_subsystem("ivc", ivc, promotes=["*"])
+
+    x_cp = np.linspace(0.0, 1.0, num_cp)
+    x_interp = cell_centered(nelems, 0.0, 1.0)
+    interp_options = {"delta_x": 0.1}
+    comp = om.SplineComp(method="akima", interp_options=interp_options, x_cp_val=x_cp, x_interp_val=x_interp)
+    comp.add_spline(y_cp_name="chord_cp", y_interp_name="chord", y_units="inch")
+    comp.add_spline(y_cp_name="twist_cp", y_interp_name="twist", y_units="rad")
+    prob.model.add_subsystem("akima_comp", comp,
+                             promotes_inputs=["chord_cp", "twist_cp"],
+                             promotes_outputs=["chord", "twist"])
+
+    struc_group = StructuralGroup(nelems=nelems, num_stress_eval_points=num_stress_eval_points)
+    prob.model.add_subsystem("structural_group", struc_group,
+                             promotes_inputs=["omega", "Tp", "Np", "chord", "twist"],
+                             promotes_outputs=["sigma1", "m"])
+
+    # Aggregate the stress
+    prob.model.add_subsystem("ks", om.KSComp(width=nelems*num_stress_eval_points*2,
+                                             add_constraint=False, ref=1.0,
+                                             units=None))
+    prob.model.connect("sigma1", "ks.g")
+
+    if optimizer == "SNOPT":
+        prob.driver = om.pyOptSparseDriver(optimizer="SNOPT")
+    else:  # use ParOpt
+        prob.driver = ParOptDriver()
+
+        # Set the optimization options
+        options = {"algorithm": "tr",
+                "tr_max_size": 0.1,
+                #"tr_min_size": 1e-4,
+                "tr_adaptive_gamma_update": True,
+                "qn_diag_type": "yts_over_sts",
+                "tr_use_soc": True,
+                "tr_max_iterations": 1000,
+                "penalty_gamma": 5.0,
+                "tr_penalty_gamma_max": 10.0,
+                "qn_subspace_size": 20,
+                "qn_type": "bfgs",
+                "abs_res_tol": 1e-8,
+                "starting_point_strategy": "affine_step",
+                "barrier_strategy": "mehrotra_predictor_corrector",
+                "use_line_search": False,
+                "max_major_iters": 200}
+        for key in options:
+            prob.driver.options[key] = options[key]
+
+    # Lower and upper limits on the chord design variable, in inches.
+    chord_lower = 0.5
+    chord_upper = 2.0
+
+    # Lower and upper limits on the twist design variable, radians.
+    theta_lower = 0.0*np.pi/180.0
+    theta_upper = 85.0*np.pi/180.0
+
+    prob.model.add_design_var("chord_cp", lower=chord_lower, upper=chord_upper, units="inch")
+    prob.model.add_design_var("twist_cp", lower=theta_lower, upper=theta_upper, units="rad")
+
+    # Stress-constrained mass minimization
+    prob.model.add_objective("m", ref=1e-2)
+    prob.model.add_constraint("ks.KS", upper=1.0)
+
+    prob.setup()
+    om.n2(prob, show_browser=False, outfile='struc_opt_w_splines.html')
+
+    return x, prob, Np, Tp
+
+def run_optimization(use_splines=False, optimizer='SNOPT'):
     # Run the structural optimization problem and plot the outputs
 
-    xe, p, Np, Tp = get_problem()
+    if use_splines:
+        xe, p, Np, Tp = get_problem_w_splines(optimizer=optimizer)
+    else:
+        xe, p, Np, Tp = get_problem(optimizer=optimizer)
     p.run_driver()
 
     print("mass = ", p.get_val("m", units="kg"))
@@ -108,12 +211,17 @@ def run_optimization():
     print("max(sigma1) = ", np.amax(p.get_val("sigma1")))
 
     # Save the chord and twist distribution to a csv
-    chord = p.get_val("chord", units="inch")
-    theta = p.get_val("twist", units="deg")
+    if use_splines:
+        chord = p.get_val("chord", units="inch")[0]
+        theta = p.get_val("twist", units="deg")[0]
+    else:
+        chord = p.get_val("chord", units="inch")
+        theta = p.get_val("twist", units="deg")
     df = pd.DataFrame({"chord":chord, "theta":theta})
     df.to_csv("chord_theta.csv", index=False)
 
     # Plot the chord and twist distribution
+    xe = np.array(xe)/0.0254
     plot_chord_theta(xe, chord, theta)
 
     # Plot the other values of interest
@@ -396,7 +504,7 @@ def plot_chord_theta(xe, chord, theta):
     ax1.set_xlabel(r"$x_1$ (in)")
     ax1.set_ylabel("Twist (deg.)")
 
-    plt.savefig("chord_theta.png", transparent=True)
+    plt.savefig("chord_theta.pdf", transparent=False)
 
     return
 
@@ -490,4 +598,4 @@ if __name__ == "__main__":
     # xe, p, Np, Tp = get_1d_problem()
     # p.run_model()
 
-    run_optimization()
+    run_optimization(use_splines=False, optimizer="SNOPT")
