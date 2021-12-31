@@ -28,7 +28,7 @@ def get_problem(optimizer="SNOPT"):
 
     # Initialize the design variables
     chord = 1.0*np.ones(nelems)  # (inch)
-    twist = (45.0*np.pi/180.0)*np.ones(nelems)  # (rad)
+    theta = (45.0*np.pi/180.0)*np.ones(nelems)  # (rad)
 
     # Define the angular rotation
     rpm = 7110.0
@@ -41,12 +41,12 @@ def get_problem(optimizer="SNOPT"):
     ivc.add_output("Tp", Tp, units="N/m")
     ivc.add_output("Np", Np, units="N/m")
     ivc.add_output("chord", chord, units="inch")
-    ivc.add_output("twist", twist, units="rad")
+    ivc.add_output("theta", theta, units="rad")
     prob.model.add_subsystem("ivc", ivc, promotes=["*"])
 
     struc_group = StructuralGroup(nelems=nelems, num_stress_eval_points=num_stress_eval_points)
     prob.model.add_subsystem("structural_group", struc_group,
-                             promotes_inputs=["omega", "Tp", "Np", "chord", "twist"],
+                             promotes_inputs=["omega", "Tp", "Np", "chord", "theta"],
                              promotes_outputs=["sigma1", "m"])
 
     # Aggregate the stress
@@ -89,7 +89,7 @@ def get_problem(optimizer="SNOPT"):
     theta_upper =  85.0*np.pi/180.0
 
     prob.model.add_design_var("chord", lower=chord_lower, upper=chord_upper, units="inch")
-    prob.model.add_design_var("twist", lower=theta_lower, upper=theta_upper, units="rad")
+    prob.model.add_design_var("theta", lower=theta_lower, upper=theta_upper, units="rad")
 
     # Stress-constrained mass minimization
     prob.model.add_objective("m", ref=1e-2)
@@ -115,7 +115,7 @@ def get_problem_w_splines(optimizer="SNOPT"):
     # Initialize the design variables
     num_cp = 8
     chord_cp0 = 1.0*np.ones(num_cp)  # (inch)
-    twist_cp0 = (45.0*np.pi/180.0)*np.ones(num_cp)  # (rad)
+    theta_cp0 = (45.0*np.pi/180.0)*np.ones(num_cp)  # (rad)
 
     # Define the angular rotation
     rpm = 7110.0
@@ -128,7 +128,7 @@ def get_problem_w_splines(optimizer="SNOPT"):
     ivc.add_output("Tp", Tp, units="N/m")
     ivc.add_output("Np", Np, units="N/m")
     ivc.add_output("chord_cp", chord_cp0, units="inch")
-    ivc.add_output("twist_cp", twist_cp0, units="rad")
+    ivc.add_output("theta_cp", theta_cp0, units="rad")
     prob.model.add_subsystem("ivc", ivc, promotes=["*"])
 
     x_cp = np.linspace(0.0, 1.0, num_cp)
@@ -136,10 +136,10 @@ def get_problem_w_splines(optimizer="SNOPT"):
     interp_options = {"delta_x": 0.1}
     comp = om.SplineComp(method="akima", interp_options=interp_options, x_cp_val=x_cp, x_interp_val=x_interp)
     comp.add_spline(y_cp_name="chord_cp", y_interp_name="chord", y_units="inch")
-    comp.add_spline(y_cp_name="twist_cp", y_interp_name="twist", y_units="rad")
+    comp.add_spline(y_cp_name="theta_cp", y_interp_name="theta", y_units="rad")
     prob.model.add_subsystem("akima_comp", comp,
-                             promotes_inputs=["chord_cp", "twist_cp"],
-                             promotes_outputs=["chord", "twist"])
+                             promotes_inputs=["chord_cp", "theta_cp"],
+                             promotes_outputs=["chord", "theta"])
 
     struc_group = StructuralGroup(nelems=nelems, num_stress_eval_points=num_stress_eval_points)
     prob.model.add_subsystem("structural_group", struc_group,
@@ -186,7 +186,7 @@ def get_problem_w_splines(optimizer="SNOPT"):
     theta_upper = 85.0*np.pi/180.0
 
     prob.model.add_design_var("chord_cp", lower=chord_lower, upper=chord_upper, units="inch")
-    prob.model.add_design_var("twist_cp", lower=theta_lower, upper=theta_upper, units="rad")
+    prob.model.add_design_var("theta_cp", lower=theta_lower, upper=theta_upper, units="rad")
 
     # Stress-constrained mass minimization
     prob.model.add_objective("m", ref=1e-2)
@@ -213,10 +213,10 @@ def run_optimization(use_splines=False, optimizer='SNOPT'):
     # Save the chord and twist distribution to a csv
     if use_splines:
         chord = p.get_val("chord", units="inch")[0]
-        theta = p.get_val("twist", units="deg")[0]
+        theta = p.get_val("theta", units="deg")[0]
     else:
         chord = p.get_val("chord", units="inch")
-        theta = p.get_val("twist", units="deg")
+        theta = p.get_val("theta", units="deg")
     df = pd.DataFrame({"chord":chord, "theta":theta})
     df.to_csv("chord_theta.csv", index=False)
 
@@ -261,10 +261,10 @@ class ConvertScalarToVec(om.ExplicitComponent):
 
         return
 
-def get_1d_problem(chord_val=None, twist_val=None):
+def get_1d_problem(chord_val=None, theta_val=None):
 
     # If chord_val is None, treat chord as a design variable
-    # If twist_val is None, treat twist as a design variable
+    # If theta_val is None, treat theta as a design variable
 
     # Compute the aerodynamic loads
     x, Np, Tp = CCBladeLoadingExample.run_ccblade()
@@ -277,10 +277,10 @@ def get_1d_problem(chord_val=None, twist_val=None):
     else:
         init_chord_val = chord_val
 
-    if not twist_val:
-        init_twist_val = 45.0*np.pi/180.0  # (rad)
+    if not theta_val:
+        init_theta_val = 45.0*np.pi/180.0  # (rad)
     else:
-        init_twist_val = twist_val
+        init_theta_val = theta_val
 
     # Define the angular rotation
     rpm = 7110.0
@@ -293,24 +293,24 @@ def get_1d_problem(chord_val=None, twist_val=None):
     ivc.add_output("Tp", Tp, units="N/m")
     ivc.add_output("Np", Np, units="N/m")
     ivc.add_output("chord_val", init_chord_val, units="inch")
-    ivc.add_output("twist_val", init_twist_val, units="rad")
+    ivc.add_output("theta_val", init_theta_val, units="rad")
     prob.model.add_subsystem("ivc", ivc, promotes=["*"])
 
     chord_comp = ConvertScalarToVec(nelems=nelems, units="inch")
     prob.model.add_subsystem("chord_comp", chord_comp)
     prob.model.connect("chord_val", "chord_comp.val")
 
-    twist_comp = ConvertScalarToVec(nelems=nelems, units="rad")
-    prob.model.add_subsystem("twist_comp", twist_comp)
-    prob.model.connect("twist_val", "twist_comp.val")
+    theta_comp = ConvertScalarToVec(nelems=nelems, units="rad")
+    prob.model.add_subsystem("theta_comp", theta_comp)
+    prob.model.connect("theta_val", "theta_comp.val")
 
     struc_group = StructuralGroup(nelems=nelems, num_stress_eval_points=num_stress_eval_points)
     prob.model.add_subsystem("structural_group", struc_group,
-                             promotes_inputs=["omega", "Tp", "Np", "chord", "twist"],
+                             promotes_inputs=["omega", "Tp", "Np", "chord", "theta"],
                              promotes_outputs=["sigma1", "m"])
 
     prob.model.connect("chord_comp.val_vec", "chord")
-    prob.model.connect("twist_comp.val_vec", "twist")
+    prob.model.connect("theta_comp.val_vec", "theta")
 
     # Aggregate the stress
     prob.model.add_subsystem("ks", om.KSComp(width=nelems*num_stress_eval_points*2,
@@ -347,13 +347,13 @@ def get_1d_problem(chord_val=None, twist_val=None):
     chord_upper = 2.0
 
     # Lower and upper limits on the twist design variable, radians.
-    theta_lower =  0.0*np.pi/180.0
-    theta_upper =  90.0*np.pi/180.0
+    theta_lower = 0.0*np.pi/180.0
+    theta_upper = 90.0*np.pi/180.0
 
     if chord_val is None:
         prob.model.add_design_var("chord_val", lower=chord_lower, upper=chord_upper, ref=1e0, units="inch")
-    if twist_val is None:
-        prob.model.add_design_var("twist_val", lower=theta_lower, upper=theta_upper, ref=1e0, units="rad")
+    if theta_val is None:
+        prob.model.add_design_var("theta_val", lower=theta_lower, upper=theta_upper, ref=1e0, units="rad")
 
     # Stress minimization
     prob.model.add_objective("ks.KS", ref=1e0)
@@ -363,31 +363,23 @@ def get_1d_problem(chord_val=None, twist_val=None):
 
     return x, prob, Np, Tp
 
-# def run_1d_optimization():
-#
-#     return
-#
-# def run_2d_optimization():
-#
-#     return
-
-def check_twist_opt_val():
+def check_theta_opt_val():
     # Run a sweep of uniform twist values and plot the KS stress at each point
     # Then solve an optimization with uniform twist as the only design variable and check that point
 
     theta_vals = (np.pi/180)*np.linspace(0.0, 90.0, 19)
     ks_vals = np.zeros(len(theta_vals))
-    _, p, _, _ = get_1d_problem(twist_val=0.0)
+    _, p, _, _ = get_1d_problem(theta_val=0.0)
 
     for i in range(len(theta_vals)):
-        p.set_val("twist_val", theta_vals[i])
+        p.set_val("theta_val", theta_vals[i])
         p.run_model()
         ks_vals[i] = p.get_val("ks.KS")
 
     # Reset the starting twist value for optimization
     # _, p, _, _ = get_1d_problem(chord_val=1.0)
     # p.run_driver()
-    # theta_opt = p.get_val("twist_val")
+    # theta_opt = p.get_val("theta_val")
     # ks_opt = p.get_val("ks.KS")
 
     # Hard-code the optimal
@@ -404,7 +396,7 @@ def check_twist_opt_val():
     ax.set_xlabel("Twist (deg.)")
     ax.set_ylabel(r"KS($\sigma$)")
     ax.legend(frameon=False)
-    plt.savefig("twist_opt_sweep.pdf")
+    plt.savefig("theta_opt_sweep.pdf")
 
     return
 
@@ -422,7 +414,7 @@ def check_chord_opt_val():
         ks_vals[i] = p.get_val("ks.KS")
 
     # # Reset the starting twist value for optimization
-    # _, p, _, _ = get_1d_problem(twist_val=0.0)
+    # _, p, _, _ = get_1d_problem(theta_val=0.0)
     # p.run_driver()
     # chord_opt = p.get_val("chord_val")
     # ks_opt = p.get_val("ks.KS")
@@ -445,17 +437,17 @@ def check_chord_opt_val():
 
     return
 
-def check_twist_area_props():
+def check_theta_area_props():
 
     theta_vals = (np.pi/180)*np.linspace(0.0, 90.0, 19)
     A_vals = np.zeros(len(theta_vals))
     Iyy_vals = np.zeros(len(theta_vals))
     Izz_vals = np.zeros(len(theta_vals))
     Iyz_vals = np.zeros(len(theta_vals))
-    _, p, _, _ = get_1d_problem(twist_val=0.0)
+    _, p, _, _ = get_1d_problem(theta_val=0.0)
 
     for i in range(len(theta_vals)):
-        p.set_val("twist_val", theta_vals[i])
+        p.set_val("theta_val", theta_vals[i])
         p.run_model()
         Iyy_vals[i] = p.get_val("structural_group.Iyy", units="inch**4")[0]
         Izz_vals[i] = p.get_val("structural_group.Izz", units="inch**4")[0]
@@ -473,7 +465,7 @@ def check_twist_area_props():
     ax.set_ylabel(r"$I$ (inches$^4$)")
     ax.legend(frameon=False)
 
-    plt.savefig("twist_sweep_area_props.pdf")
+    plt.savefig("theta_sweep_area_props.pdf")
 
     return
 
@@ -588,14 +580,14 @@ def plot_extras(p, xe, Tp, Np):
 
 if __name__ == "__main__":
 
-    #check_twist_opt_val()
+    #check_theta_opt_val()
     #check_chord_opt_val()
     # _, p, _, _ = get_1d_problem(chord_val=1.0)
     # p.run_driver()
-    # print(p.get_val("twist_val"))
+    # print(p.get_val("theta_val"))
     # print(p.get_val("ks.KS"))
 
     # xe, p, Np, Tp = get_1d_problem()
     # p.run_model()
 
-    run_optimization(use_splines=False, optimizer="SNOPT")
+    run_optimization(use_splines=True, optimizer="SNOPT")

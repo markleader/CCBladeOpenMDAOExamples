@@ -149,7 +149,7 @@ function SolverComp(; rho, E, nu, Rhub, span, nelems)
     # Initialize the input and output vectors needed by ForwardDiff.jl.
     X = ComponentArray(
         omega=0.0, Np=zeros(Float64, nelems), Tp=zeros(Float64, nelems),
-        chord=zeros(Float64, nelems), twist=zeros(Float64, nelems),
+        chord=zeros(Float64, nelems), theta=zeros(Float64, nelems),
         A=zeros(Float64, nelems), Iyy=zeros(Float64, nelems),
         Izz=zeros(Float64, nelems), Iyz=zeros(Float64, nelems))
     Y = ComponentArray(

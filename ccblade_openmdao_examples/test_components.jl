@@ -6,7 +6,7 @@ prob = om.Problem()
 
 nelems = 5
 chord = collect(range(1.5*0.0254, 0.5*0.0254, length=nelems))
-twist = 1.57079*ones(nelems) #collect(range(1.0, 0.0, length=nelems))
+theta = 1.57079*ones(nelems) #collect(range(1.0, 0.0, length=nelems))
 
 A_ref = 821.8
 Iyy_ref = 23543.4
@@ -14,15 +14,15 @@ Izz_ref = 5100.8
 
 ivc = om.IndepVarComp()
 ivc.add_output("chord", chord, units="m")
-ivc.add_output("twist", twist, units="rad")
+ivc.add_output("theta", theta, units="rad")
 prob.model.add_subsystem("ivc", ivc, promotes=["*"])
 
 area_comp = make_component(AreaComp(nelems=nelems, A_ref=A_ref, Iyy_ref=Iyy_ref, Izz_ref=Izz_ref))  # Need to convert Julia obj to Python obj
 prob.model.add_subsystem("area_comp", area_comp, promotes=["*"])
 
-# prob.setup()
-# prob.run_model()
-# prob.check_partials(compact_print=true)
+prob.setup()
+prob.run_model()
+prob.check_partials(compact_print=true)
 
 include("stress_component.jl")
 
@@ -33,7 +33,7 @@ Nx = collect(range(1000.0, 0.0, length=nelems))
 My = collect(range(100.0, 0.0, length=nelems))
 Mz = collect(range(500.0, 0.0, length=nelems))
 chord = collect(range(1.5*0.0254, 0.5*0.0254, length=nelems))
-twist = collect(range(1.0, 0.0, length=nelems))
+theta = collect(range(1.0, 0.0, length=nelems))
 A = collect(range(0.01, 0.005, length=nelems))
 Iyy = collect(range(0.002, 0.001, length=nelems))
 Izz = collect(range(0.002, 0.001, length=nelems))
@@ -44,7 +44,7 @@ ivc.add_output("Nx", Nx, units="N")
 ivc.add_output("My", My, units="N*m")
 ivc.add_output("Mz", Mz, units="N*m")
 ivc.add_output("chord", chord, units="m")
-ivc.add_output("twist", twist, units="rad")
+ivc.add_output("theta", theta, units="rad")
 ivc.add_output("A", A, units="m**2")
 ivc.add_output("Iyy", Iyy, units="m**4")
 ivc.add_output("Izz", Izz, units="m**4")
@@ -70,10 +70,10 @@ xe = collect(range(Rhub, span, length=nelems))
 Tp = collect(range(10.0, 50.0, length=nelems))
 Np = collect(range(10.0, 200.0, length=nelems))
 chord = collect(range(1.5*0.0254, 0.5*0.0254, length=nelems))
-twist = collect(range(1.0, 0.0, length=nelems))
+theta = collect(range(1.0, 0.0, length=nelems))
 
-s = sin.(twist)
-c = cos.(twist)
+s = sin.(theta)
+c = cos.(theta)
 s2 = s.^2
 c2 = c.^2
 
@@ -90,7 +90,7 @@ ivc.add_output("omega", omega, units="rad/s")
 ivc.add_output("Tp", Tp, units="N/m")
 ivc.add_output("Np", Np, units="N/m")
 ivc.add_output("chord", chord, units="m")
-ivc.add_output("twist", twist, units="rad")
+ivc.add_output("theta", theta, units="rad")
 ivc.add_output("A", A, units="m**2")
 ivc.add_output("Iyy", Iyy, units="m**4")
 ivc.add_output("Izz", Izz, units="m**4")
@@ -100,9 +100,9 @@ prob.model.add_subsystem("ivc", ivc, promotes=["*"])
 solver_comp = make_component(SolverComp(rho=2780.0, E=72.4e9, nu=0.33, Rhub=Rhub, span=span, nelems=nelems))
 prob.model.add_subsystem("solver_comp", solver_comp, promotes=["*"])
 
-# prob.setup()
-# prob.run_model()
-# prob.check_partials(compact_print=true, step=1e-10)
+prob.setup()
+prob.run_model()
+prob.check_partials(compact_print=true)
 
 include("mass_component.jl")
 
