@@ -6,11 +6,9 @@ import matplotlib.ticker as mticker
 import openmdao.api as om
 from openmdao.utils.spline_distributions import cell_centered
 from julia.OpenMDAO import make_component
-from julia import CCBladeLoadingExample
-from paropt.paropt_driver import ParOptDriver
+#from julia import CCBladeLoadingExample
 
 from ccblade_openmdao_examples.structural_group import StructuralGroup
-from ccblade_openmdao_examples.gxbeam_openmdao_component import MassComp
 from ccblade_openmdao_examples.ccblade_openmdao_component import BEMTRotorCAComp
 
 
@@ -55,6 +53,7 @@ def get_problem():
 
     prob = om.Problem()
 
+    # Create the independent variable component
     ivc = om.IndepVarComp()
     ivc.add_output("Rhub", val=Rhub, units="m")
     ivc.add_output("Rtip", val=Rtip, units="m")
@@ -66,6 +65,7 @@ def get_problem():
     ivc.add_output("pitch", val=pitch, shape=num_operating_points, units="rad")
     prob.model.add_subsystem("ivc", ivc, promotes=["*"])
 
+    # Create the spline component
     x_cp = np.linspace(0.0, 1.0, num_cp)
     x_interp = cell_centered(nelems, 0.0, 1.0)
     interp_options = {"delta_x": 0.1}
@@ -77,20 +77,20 @@ def get_problem():
                              promotes_inputs=["radii_cp", "chord_cp", "theta_cp"],
                              promotes_outputs=["radii", "chord", "theta"])
 
+    # Create the structural group
     struc_group = StructuralGroup(nnodes=nnodes, num_stress_eval_points=num_stress_eval_points)
     prob.model.add_subsystem("structural_group", struc_group,
                              promotes_inputs=["omega", "Tp", "Np", "chord", "theta"],
                              promotes_outputs=["sigma1", "m"])
 
+    # Create the aerodynamic component
     af_fname = "../data/xf-n0012-il-500000.dat"
     comp = make_component(
         BEMTRotorCAComp(
             af_fname=af_fname, cr75=c/Rtip, Re_exp=0.6,
             num_operating_points=num_operating_points, num_blades=B,
             num_radial=num_radial, rho=rho0, mu=mu, speedofsound=speedofsound))
-    prob.model.add_subsystem("bemt_rotor_comp", comp, promotes_inputs=["Rhub", "Rtip", "radii", "chord", "theta", "v", "omega", "pitch"], promotes_outputs=["thrust", "torque", "efficiency"])
-
-    # TODO: connect the aero forces to the structural group
+    prob.model.add_subsystem("bemt_rotor_comp", comp, promotes_inputs=["Rhub", "Rtip", "radii", "chord", "theta", "v", "omega", "pitch"], promotes_outputs=["thrust", "torque", "efficiency", "Tp", "Np"])
 
     # Aggregate the stress
     prob.model.add_subsystem('ks', om.KSComp(width=nelems*num_stress_eval_points*2,
@@ -99,34 +99,14 @@ def get_problem():
     prob.model.connect('sigma1', 'ks.g')
 
     prob.model.linear_solver = om.DirectSolver()
-    prob.driver = ParOptDriver()
-
-    # Set the optimization options
-    options = {'algorithm': 'tr',
-               'tr_max_size': 0.1,
-               #'tr_min_size': 1e-4,
-               'tr_adaptive_gamma_update': True,
-               'qn_diag_type': 'yts_over_sts',
-               'tr_use_soc': True,
-               'tr_max_iterations': 1000,
-               'penalty_gamma': 5.0,
-               'tr_penalty_gamma_max': 10.0,
-               'qn_subspace_size': 20,
-               'qn_type': 'bfgs',
-               'abs_res_tol': 1e-8,
-               'starting_point_strategy': 'affine_step',
-               'barrier_strategy': 'mehrotra_predictor_corrector',
-               'use_line_search': False,
-               'max_major_iters': 200}
-    for key in options:
-        prob.driver.options[key] = options[key]
+    prob.driver = om.pyOptSparseDriver(optimizer="SNOPT")
 
     # Lower and upper limits on the chord design variable, in inches.
-    chord_lower = 0.5
-    chord_upper = 2.0
+    chord_lower = 1.0
+    chord_upper = 5.0
 
-    # Lower and upper limits on the twist design variable, radians.
-    theta_lower =  0.0*np.pi/180.0
+    # Lower and upper limits on the theta design variable, radians.
+    theta_lower =  5.0*np.pi/180.0
     theta_upper =  85.0*np.pi/180.0
 
     # Define the mass threshold using a percent of the upper chord limit
@@ -135,7 +115,7 @@ def get_problem():
 
     # Set the optimization problem formulation
     prob.model.add_design_var("chord_cp", lower=chord_lower, upper=chord_upper, ref=1e0, units="inch")
-    prob.model.add_design_var("twist_cp", lower=theta_lower, upper=theta_upper, ref=1e0, units="rad")
+    prob.model.add_design_var("theta_cp", lower=theta_lower, upper=theta_upper, ref=1e0, units="rad")
 
     prob.model.add_objective("efficiency", ref=-1e0)
     prob.model.add_constraint("thrust", lower=thrust_target, upper=thrust_target, units="N", ref=1e2)
@@ -151,7 +131,7 @@ if __name__ == "__main__":
     p.run_driver()
 
     chord = p.get_val("chord", units="inch")[0]
-    theta = p.get_val("twist", units="deg")[0]
+    theta = p.get_val("theta", units="deg")[0]
     print("mass = ", p.get_val("m", units="kg"))
     print("KS(sigma1)/sigma_y = ", p.get_val("ks.KS"))
     print("max(sigma1) = ", np.amax(p.get_val("sigma1")))
@@ -184,7 +164,7 @@ if __name__ == "__main__":
 
     ax0.set_ylabel('Chord (in)')
     ax1.set_xlabel(r'$x_1$ (in)')
-    ax1.set_ylabel('Twist (deg.)')
+    ax1.set_ylabel('theta (deg.)')
 
     plt.savefig("chord_theta.pdf", transparent=True)
 
