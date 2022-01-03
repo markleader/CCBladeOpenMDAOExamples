@@ -1,4 +1,12 @@
 __pycache__
 *.egg-info
 *.pdf
+*.out
+*.csv
+*.tr
+*.html
+iprof.*
+*.DS_Store
+*.pptx
+*.png
 *~
