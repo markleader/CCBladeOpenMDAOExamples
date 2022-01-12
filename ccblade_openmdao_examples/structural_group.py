@@ -12,6 +12,9 @@ class StructuralGroup(om.Group):
     def initialize(self):
         self.options.declare("nelems", types=int)
         self.options.declare("num_stress_eval_points", types=int)
+        self.options.declare("span", default=12.0*0.0254)
+        self.options.declare("Rhub", default=2.4*0.0254)
+        self.options.declare("ys", default=345e6)
 
         return
 
@@ -19,9 +22,9 @@ class StructuralGroup(om.Group):
 
         num_stress_eval_points = self.options["num_stress_eval_points"]
         nelems = self.options["nelems"]
-        span = 12.0*0.0254
-        Rhub = 0.2*span
-        ys = 345e6
+        span = self.options["span"]
+        Rhub = self.options["Rhub"]
+        ys = self.options["ys"]
 
         area_comp = make_component(
             AreaComp(
