@@ -20,9 +20,9 @@ prob.model.add_subsystem("ivc", ivc, promotes=["*"])
 area_comp = make_component(AreaComp(nelems=nelems, A_ref=A_ref, Iyy_ref=Iyy_ref, Izz_ref=Izz_ref))  # Need to convert Julia obj to Python obj
 prob.model.add_subsystem("area_comp", area_comp, promotes=["*"])
 
-prob.setup()
-prob.run_model()
-prob.check_partials(compact_print=true)
+# prob.setup()
+# prob.run_model()
+# prob.check_partials(compact_print=true)
 
 include("stress_component.jl")
 
@@ -51,12 +51,12 @@ ivc.add_output("Izz", Izz, units="m**4")
 ivc.add_output("Iyz", Iyz, units="m**4")
 prob.model.add_subsystem("ivc", ivc, promotes=["*"])
 
-area_comp = make_component(StressComp(nelems=nelems, num_stress_eval_points=50, ys=345e6))
-prob.model.add_subsystem("stress_comp", area_comp, promotes=["*"])
+stress_comp = make_component(StressComp(nelems=nelems, num_stress_eval_points=50, ys=345e6))
+prob.model.add_subsystem("stress_comp", stress_comp, promotes=["*"])
 
-prob.setup(force_alloc_complex=true)
-prob.run_model()
-prob.check_partials(compact_print=false, method="cs")
+# prob.setup(force_alloc_complex=true)
+# prob.run_model()
+# prob.check_partials(compact_print=true, method="cs")
 
 include("gxbeam_component.jl")
 
@@ -100,9 +100,9 @@ prob.model.add_subsystem("ivc", ivc, promotes=["*"])
 solver_comp = make_component(SolverComp(rho=2780.0, E=72.4e9, nu=0.33, Rhub=Rhub, span=span, nelems=nelems))
 prob.model.add_subsystem("solver_comp", solver_comp, promotes=["*"])
 
-prob.setup()
-prob.run_model()
-prob.check_partials(compact_print=true)
+# prob.setup()
+# prob.run_model()
+# prob.check_partials(compact_print=true)
 
 include("mass_component.jl")
 
@@ -116,3 +116,19 @@ prob.model.add_subsystem("mass_comp", solver_comp, promotes=["*"])
 # prob.setup()
 # prob.run_model()
 # prob.check_partials(compact_print=true)
+
+include("von_mises_component.jl")
+
+num_stress_eval_points = 20
+sigma1 = collect(range(-1.5, 1.5, length=2*nelems*num_stress_eval_points))
+
+prob = om.Problem()
+ivc = om.IndepVarComp()
+ivc.add_output("sigma1", sigma1)
+
+vm_comp = make_component(VonMisesComp(nelems=nelems, num_stress_eval_points=num_stress_eval_points))
+prob.model.add_subsystem("vm_comp", vm_comp, promotes=["*"])
+
+prob.setup()
+prob.run_model()
+prob.check_partials(compact_print=true)

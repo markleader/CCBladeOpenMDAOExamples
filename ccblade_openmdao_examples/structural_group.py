@@ -1,3 +1,4 @@
+from email.policy import default
 import numpy as np
 
 import openmdao.api as om
@@ -6,6 +7,7 @@ import julia.Main as julia
 from ccblade_openmdao_examples.gxbeam_openmdao_component import AreaComp
 from ccblade_openmdao_examples.gxbeam_openmdao_component import SolverComp
 from ccblade_openmdao_examples.gxbeam_openmdao_component import StressComp
+from ccblade_openmdao_examples.gxbeam_openmdao_component import VonMisesComp
 from ccblade_openmdao_examples.gxbeam_openmdao_component import MassComp
 
 class StructuralGroup(om.Group):
@@ -15,6 +17,7 @@ class StructuralGroup(om.Group):
         self.options.declare("span", default=12.0*0.0254)
         self.options.declare("Rhub", default=2.4*0.0254)
         self.options.declare("ys", default=345e6)
+        self.options.declare("rho", default=2780.0)
 
         return
 
@@ -25,6 +28,7 @@ class StructuralGroup(om.Group):
         span = self.options["span"]
         Rhub = self.options["Rhub"]
         ys = self.options["ys"]
+        rho = self.options["rho"]
 
         area_comp = make_component(
             AreaComp(
@@ -38,8 +42,12 @@ class StructuralGroup(om.Group):
             StressComp(
                 nelems=nelems, num_stress_eval_points=num_stress_eval_points, ys=ys))
 
+        vm_comp = make_component(
+            VonMisesComp(
+                nelems=nelems, num_stress_eval_points=num_stress_eval_points))
+
         mass_comp = make_component(
-            MassComp(rho=2780.0, span=span, nelems=nelems))
+            MassComp(rho=rho, span=span, nelems=nelems))
 
         self.add_subsystem(name="area_comp",
                            subsys=area_comp,
@@ -52,8 +60,11 @@ class StructuralGroup(om.Group):
 
         self.add_subsystem(name="stress_comp",
                            subsys=stress_comp,
-                           promotes_inputs=["chord", "theta", "A", "Iyy", "Izz", "Iyz"],
-                           promotes_outputs=["sigma1"])
+                           promotes_inputs=["chord", "theta", "A", "Iyy", "Izz", "Iyz"])
+
+        self.add_subsystem(name="vm_comp",
+                           subsys=vm_comp,
+                           promotes_outputs=["sigma_vm"])
 
         self.add_subsystem(name="mass_comp",
                            subsys=mass_comp,
@@ -63,5 +74,6 @@ class StructuralGroup(om.Group):
         self.connect("solver_comp.Fx", "stress_comp.Fx")
         self.connect("solver_comp.My", "stress_comp.My")
         self.connect("solver_comp.Mz", "stress_comp.Mz")
+        self.connect("stress_comp.sigma1", "vm_comp.sigma1")
 
         return

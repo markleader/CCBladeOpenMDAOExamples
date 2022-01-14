@@ -9,4 +9,5 @@ Main.include(os.path.join(script_dir, "gxbeam_openmdao_component.jl"))
 AreaComp = Main.AreaComp
 SolverComp = Main.SolverComp
 StressComp = Main.StressComp
+VonMisesComp = Main.VonMisesComp
 MassComp = Main.MassComp

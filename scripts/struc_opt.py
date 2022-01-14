@@ -1,10 +1,8 @@
 import numpy as np
 import pandas as pd
 import matplotlib.pyplot as plt
-import matplotlib.ticker as mticker
 
 import openmdao.api as om
-from openmdao.devtools import iprofile
 from openmdao.utils.spline_distributions import cell_centered
 from julia.OpenMDAO import make_component
 from julia import CCBladeLoadingExample
@@ -44,16 +42,16 @@ def get_problem(optimizer="SNOPT"):
     ivc.add_output("theta", theta, units="rad")
     prob.model.add_subsystem("ivc", ivc, promotes=["*"])
 
-    struc_group = StructuralGroup(nelems=nelems, num_stress_eval_points=num_stress_eval_points)
+    struc_group = StructuralGroup(nelems=nelems, num_stress_eval_points=num_stress_eval_points, Rhub=Rhub, span=Rtip)
     prob.model.add_subsystem("structural_group", struc_group,
                              promotes_inputs=["omega", "Tp", "Np", "chord", "theta"],
-                             promotes_outputs=["sigma1", "m"])
+                             promotes_outputs=["sigma_vm", "m"])
 
     # Aggregate the stress
     prob.model.add_subsystem("ks", om.KSComp(width=nelems*num_stress_eval_points*2,
                                              add_constraint=False, ref=1.0,
                                              units=None))
-    prob.model.connect("sigma1", "ks.g")
+    prob.model.connect("sigma_vm", "ks.g")
 
     if optimizer == "SNOPT":
         prob.driver = om.pyOptSparseDriver(optimizer="SNOPT")
@@ -141,16 +139,16 @@ def get_problem_w_splines(optimizer="SNOPT"):
                              promotes_inputs=["chord_cp", "theta_cp"],
                              promotes_outputs=["chord", "theta"])
 
-    struc_group = StructuralGroup(nelems=nelems, num_stress_eval_points=num_stress_eval_points)
+    struc_group = StructuralGroup(nelems=nelems, num_stress_eval_points=num_stress_eval_points, Rhub=Rhub, span=Rtip)
     prob.model.add_subsystem("structural_group", struc_group,
                              promotes_inputs=["omega", "Tp", "Np", "chord", "theta"],
-                             promotes_outputs=["sigma1", "m"])
+                             promotes_outputs=["sigma_vm", "m"])
 
     # Aggregate the stress
     prob.model.add_subsystem("ks", om.KSComp(width=nelems*num_stress_eval_points*2,
                                              add_constraint=False, ref=1.0,
                                              units=None))
-    prob.model.connect("sigma1", "ks.g")
+    prob.model.connect("sigma_vm", "ks.g")
 
     if optimizer == "SNOPT":
         prob.driver = om.pyOptSparseDriver(optimizer="SNOPT")
@@ -207,18 +205,20 @@ def run_optimization(use_splines=False, optimizer='SNOPT'):
     p.run_driver()
 
     print("mass = ", p.get_val("m", units="kg"))
-    print("KS(sigma1)/sigma_y = ", p.get_val("ks.KS"))
-    print("max(sigma1) = ", np.amax(p.get_val("sigma1")))
+    print("KS(sigma_vm)/sigma_y = ", p.get_val("ks.KS"))
+    print("max(sigma_vm) = ", np.amax(p.get_val("sigma_vm")))
 
     # Save the chord and twist distribution to a csv
     if use_splines:
+        fname = "chord_theta_{0}_w_splines.csv".format(optimizer)
         chord = p.get_val("chord", units="inch")[0]
         theta = p.get_val("theta", units="deg")[0]
     else:
+        fname = "chord_theta_{0}.csv".format(optimizer)
         chord = p.get_val("chord", units="inch")
         theta = p.get_val("theta", units="deg")
     df = pd.DataFrame({"chord":chord, "theta":theta})
-    df.to_csv("chord_theta.csv", index=False)
+    df.to_csv(fname, index=False)
 
     # Plot the chord and twist distribution
     xe = np.array(xe)/0.0254
@@ -261,10 +261,15 @@ class ConvertScalarToVec(om.ExplicitComponent):
 
         return
 
-def get_1d_problem(chord_val=None, theta_val=None):
+def get_1d_problem(chord_val=None, theta_val=None, optimizer="SNOPT"):
 
     # If chord_val is None, treat chord as a design variable
     # If theta_val is None, treat theta as a design variable
+
+    # Propeller dimensions
+    D = 24.0*0.0254  # Diameter in meters.
+    Rtip = 0.5*D
+    Rhub = 0.2*Rtip  # Just guessing on the hub diameter.
 
     # Compute the aerodynamic loads
     x, Np, Tp = CCBladeLoadingExample.run_ccblade()
@@ -284,7 +289,11 @@ def get_1d_problem(chord_val=None, theta_val=None):
 
     # Define the angular rotation
     rpm = 7110.0
-    omega = rpm*2*np.pi/60
+    omega = 0.0#rpm*2*np.pi/60
+
+    # Set dummy loads
+    Np = np.mean(Np)*np.ones(nelems)
+    Tp = np.zeros(nelems)
 
     prob = om.Problem()
 
@@ -304,10 +313,10 @@ def get_1d_problem(chord_val=None, theta_val=None):
     prob.model.add_subsystem("theta_comp", theta_comp)
     prob.model.connect("theta_val", "theta_comp.val")
 
-    struc_group = StructuralGroup(nelems=nelems, num_stress_eval_points=num_stress_eval_points)
+    struc_group = StructuralGroup(nelems=nelems, num_stress_eval_points=num_stress_eval_points, Rhub=Rhub, span=Rtip)
     prob.model.add_subsystem("structural_group", struc_group,
                              promotes_inputs=["omega", "Tp", "Np", "chord", "theta"],
-                             promotes_outputs=["sigma1", "m"])
+                             promotes_outputs=["sigma_vm", "m"])
 
     prob.model.connect("chord_comp.val_vec", "chord")
     prob.model.connect("theta_comp.val_vec", "theta")
@@ -316,31 +325,32 @@ def get_1d_problem(chord_val=None, theta_val=None):
     prob.model.add_subsystem("ks", om.KSComp(width=nelems*num_stress_eval_points*2,
                                              add_constraint=False, ref=1.0,
                                              units=None))
-    prob.model.connect("sigma1", "ks.g")
+    prob.model.connect("sigma_vm", "ks.g")
 
-#     prob.driver = ParOptDriver()
-#
-#     # Set the optimization options
-#     options = {"algorithm": "tr",
-#                "tr_max_size": 0.1,
-#                #"tr_min_size": 1e-4,
-#                "tr_adaptive_gamma_update": True,
-#                "qn_diag_type": "yts_over_sts",
-#                "tr_use_soc": True,
-#                "tr_max_iterations": 1000,
-#                "penalty_gamma": 5.0,
-#                "tr_penalty_gamma_max": 10.0,
-#                "qn_subspace_size": 20,
-#                "qn_type": "bfgs",
-#                "abs_res_tol": 1e-8,
-#                "starting_point_strategy": "affine_step",
-#                "barrier_strategy": "mehrotra_predictor_corrector",
-#                "use_line_search": False,
-#                "max_major_iters": 200}
-#     for key in options:
-#         prob.driver.options[key] = options[key]
+    if optimizer == "SNOPT":
+        prob.driver = om.pyOptSparseDriver(optimizer="SNOPT")
+    else:
+        prob.driver = ParOptDriver()
 
-    prob.driver = om.pyOptSparseDriver(optimizer="SNOPT")
+        # Set the optimization options
+        options = {"algorithm": "tr",
+                "tr_max_size": 0.1,
+                #"tr_min_size": 1e-4,
+                "tr_adaptive_gamma_update": True,
+                "qn_diag_type": "yts_over_sts",
+                "tr_use_soc": True,
+                "tr_max_iterations": 1000,
+                "penalty_gamma": 5.0,
+                "tr_penalty_gamma_max": 10.0,
+                "qn_subspace_size": 20,
+                "qn_type": "bfgs",
+                "abs_res_tol": 1e-8,
+                "starting_point_strategy": "affine_step",
+                "barrier_strategy": "mehrotra_predictor_corrector",
+                "use_line_search": False,
+                "max_major_iters": 200}
+        for key in options:
+            prob.driver.options[key] = options[key]
 
     # Lower and upper limits on the chord design variable, in inches.
     chord_lower = 0.5
@@ -348,7 +358,7 @@ def get_1d_problem(chord_val=None, theta_val=None):
 
     # Lower and upper limits on the twist design variable, radians.
     theta_lower = 0.0*np.pi/180.0
-    theta_upper = 90.0*np.pi/180.0
+    theta_upper = 85.0*np.pi/180.0
 
     if chord_val is None:
         prob.model.add_design_var("chord_val", lower=chord_lower, upper=chord_upper, ref=1e0, units="inch")
@@ -369,12 +379,25 @@ def check_theta_opt_val():
 
     theta_vals = (np.pi/180)*np.linspace(0.0, 90.0, 19)
     ks_vals = np.zeros(len(theta_vals))
+    Iyy = np.zeros(len(theta_vals))
+    Izz = np.zeros(len(theta_vals))
+    Iyz = np.zeros(len(theta_vals))
+    Fx = np.zeros(len(theta_vals))
+    My = np.zeros(len(theta_vals))
+    Mz = np.zeros(len(theta_vals))
     _, p, _, _ = get_1d_problem(theta_val=0.0)
 
     for i in range(len(theta_vals)):
         p.set_val("theta_val", theta_vals[i])
         p.run_model()
         ks_vals[i] = p.get_val("ks.KS")
+        print(f"Theta = {theta_vals[i]}; KS = {ks_vals[i]}")
+        Iyy[i] = p.get_val("structural_group.Iyy", units="inch**4")[0]
+        Izz[i] = p.get_val("structural_group.Izz", units="inch**4")[0]
+        Iyz[i] = p.get_val("structural_group.Iyz", units="inch**4")[0]
+        Fx[i] = np.amax(p.get_val("structural_group.solver_comp.Fx"))
+        My[i] = np.amax(p.get_val("structural_group.solver_comp.My"))
+        Mz[i] = np.amax(p.get_val("structural_group.solver_comp.Mz"))
 
     # Reset the starting twist value for optimization
     # _, p, _, _ = get_1d_problem(chord_val=1.0)
@@ -383,19 +406,46 @@ def check_theta_opt_val():
     # ks_opt = p.get_val("ks.KS")
 
     # Hard-code the optimal
-    theta_opt = 1.198250*180.0/np.pi
-    ks_opt = 0.9297127
+    theta_opt = .78539816*180.0/np.pi
+    ks_opt = 0.67667835
 
-    fig = plt.figure()
-    ax = plt.subplot(1, 1, 1)
-    ax.plot((180.0/np.pi)*theta_vals, ks_vals, label="Value sweep")
-    ax.scatter(theta_opt, ks_opt, color="tab:red", label="Optimal", zorder=100)
+    fig, (ax0, ax1, ax2) = plt.subplots(nrows=3, sharex=True, constrained_layout=True)
+    ax0.plot((180.0/np.pi)*theta_vals, ks_vals, label="Value sweep")
+    # ax0.scatter(theta_opt, ks_opt, color="tab:red", label="Optimal", zorder=100)
 
-    ax.spines["right"].set_visible(False)
-    ax.spines["top"].set_visible(False)
-    ax.set_xlabel("Twist (deg.)")
-    ax.set_ylabel(r"KS($\sigma$)")
-    ax.legend(frameon=False)
+    ax0.spines["right"].set_visible(False)
+    ax0.spines["top"].set_visible(False)
+    ax0.set_ylabel(r"KS($\sigma$)")
+    # ax0.legend(frameon=False)
+
+    ax1.plot((180.0/np.pi)*theta_vals, Iyy, label=r"$I_{yy}$")
+    ax1.plot((180.0/np.pi)*theta_vals, Izz, label=r"$I_{zz}$")
+    ax1.plot((180.0/np.pi)*theta_vals, Iyz, label=r"$I_{yz}$")
+
+    ax2r = ax2.twinx()
+    ax2r.plot((180.0/np.pi)*theta_vals, Fx, c="C0", label=r"$F_{x}$")
+    ax2.plot((180.0/np.pi)*theta_vals, My, c="C1", label=r"$M_{y}$")
+    ax2.plot((180.0/np.pi)*theta_vals, Mz, c="C2", label=r"$M_{z}$")
+
+    for ax in [ax0, ax1]:
+        ax.spines["right"].set_visible(False)
+        ax.spines["top"].set_visible(False)
+        ax.spines["bottom"].set_visible(False)
+        ax.tick_params(axis="x", direction="out", length=0.0, width=0.0)
+        ax.yaxis.set_ticks_position("left")
+        ax.xaxis.set_ticks_position("bottom")
+        ax.grid(True)
+
+    ax2r.spines["top"].set_visible(False)
+    ax2.spines["top"].set_visible(False)
+
+    ax2.set_xlabel("Twist (deg.)")
+
+    ax1.legend()
+    h1, l1 = ax2r.get_legend_handles_labels()
+    h2, l2 = ax2.get_legend_handles_labels()
+    ax2.legend([h1[0]]+h2, [l1[0]]+l2)
+
     plt.savefig("theta_opt_sweep.pdf")
 
     return
@@ -434,6 +484,38 @@ def check_chord_opt_val():
     ax.set_ylabel(r"KS($\sigma$)")
     ax.legend(frameon=False)
     plt.savefig("chord_opt_sweep.pdf")
+
+    return
+
+def plot_stress_distribution(theta=0.0):
+    # Check the stress distribution using the 1D problem
+
+    x, p, _, _ = get_1d_problem(theta_val=theta)
+    p.run_model()
+    ks = p.get_val("ks.KS")
+    print(f"Theta = {theta}; KS = {ks}")
+    sigma_vec = p.get_val("sigma_vm")
+    nelems = len(x)
+    num_stress_eval_points = int(len(sigma_vec)/(2*nelems))
+    sigma = np.zeros((2*num_stress_eval_points, nelems))
+    sigma_max = np.zeros(nelems)
+    for i in range(nelems):
+        sigma_max[i] = np.amax(sigma_vec[2*i*num_stress_eval_points:2*(i+1)*num_stress_eval_points])
+        for j in range(2*num_stress_eval_points):
+            sigma[j, i] = sigma_vec[2*i*num_stress_eval_points + j]
+
+    #sigma = np.reshape(sigma, (2*num_stress_eval_points, nelems))
+
+    # Plot the stress distribution of each eval point along the span
+    fig = plt.figure()
+    ax = plt.subplot(1, 1, 1)
+    ax.plot(x, sigma_max, color="C0")
+    for i in range(2*num_stress_eval_points):
+        ax.plot(x, sigma[i, :], color="C0", alpha=0.2)
+
+    ax.set_xlabel("Span (inches)")
+    ax.set_ylabel("Stress")
+    plt.savefig(f"stress_distribution_theta_{int(theta*180.0/np.pi)}.pdf")
 
     return
 
@@ -514,11 +596,11 @@ def plot_extras(p, xe, Tp, Np):
     Fx = p.get_val("structural_group.solver_comp.Fx")
     My = p.get_val("structural_group.solver_comp.My")
     Mz = p.get_val("structural_group.solver_comp.Mz")
-    sigma1 = p.get_val("sigma1")
+    sigma_vm = p.get_val("sigma_vm")
     sigma_x1 = np.zeros(nelems)
     num_stress_eval_points = 20
     for i in range(nelems):
-        sigma_x1[i] = np.amax(sigma1[2*i*num_stress_eval_points:2*(i+1)*num_stress_eval_points])
+        sigma_x1[i] = np.amax(sigma_vm[2*i*num_stress_eval_points:2*(i+1)*num_stress_eval_points])
 
     ax0.plot(xe, Tp, label=r"$T_p$")
     ax0.plot(xe, Np, label=r"$N_p$")
@@ -580,14 +662,16 @@ def plot_extras(p, xe, Tp, Np):
 
 if __name__ == "__main__":
 
-    #check_theta_opt_val()
+    check_theta_opt_val()
     #check_chord_opt_val()
     # _, p, _, _ = get_1d_problem(chord_val=1.0)
     # p.run_driver()
     # print(p.get_val("theta_val"))
     # print(p.get_val("ks.KS"))
 
+    #plot_stress_distribution(theta=89.0*np.pi/180.0)
+
     # xe, p, Np, Tp = get_1d_problem()
     # p.run_model()
 
-    run_optimization(use_splines=True, optimizer="SNOPT")
+    #run_optimization(use_splines=True, optimizer="SNOPT")
