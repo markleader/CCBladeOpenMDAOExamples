@@ -6,23 +6,25 @@ prob = om.Problem()
 
 nelems = 5
 chord = collect(range(1.5*0.0254, 0.5*0.0254, length=nelems))
-theta = 1.57079*ones(nelems) #collect(range(1.0, 0.0, length=nelems))
+theta = 1.57079*ones(nelems)
 
 A_ref = 821.8
 Iyy_ref = 23543.4
 Izz_ref = 5100.8
+zrel_cm = 0.41
+zrel_rot = 0.25
 
 ivc = om.IndepVarComp()
 ivc.add_output("chord", chord, units="m")
 ivc.add_output("theta", theta, units="rad")
 prob.model.add_subsystem("ivc", ivc, promotes=["*"])
 
-area_comp = make_component(AreaComp(nelems=nelems, A_ref=A_ref, Iyy_ref=Iyy_ref, Izz_ref=Izz_ref))  # Need to convert Julia obj to Python obj
+area_comp = make_component(AreaComp(nelems=nelems, A_ref=A_ref, Iyy_ref=Iyy_ref, Izz_ref=Izz_ref, zrel_cm=zrel_cm, zrel_rot=zrel_rot))
 prob.model.add_subsystem("area_comp", area_comp, promotes=["*"])
 
-# prob.setup()
+# prob.setup(force_alloc_complex=true)
 # prob.run_model()
-# prob.check_partials(compact_print=true)
+# prob.check_partials(compact_print=true, method="cs")
 
 include("stress_component.jl")
 
@@ -51,7 +53,7 @@ ivc.add_output("Izz", Izz, units="m**4")
 ivc.add_output("Iyz", Iyz, units="m**4")
 prob.model.add_subsystem("ivc", ivc, promotes=["*"])
 
-stress_comp = make_component(StressComp(nelems=nelems, num_stress_eval_points=50, ys=345e6))
+stress_comp = make_component(StressComp(nelems=nelems, num_stress_eval_points=50, ys=345e6, zrel_rot=zrel_rot))
 prob.model.add_subsystem("stress_comp", stress_comp, promotes=["*"])
 
 # prob.setup(force_alloc_complex=true)
@@ -113,9 +115,9 @@ ivc.add_output("A", A, units="m**2")
 solver_comp = make_component(MassComp(rho=2600.0, span=span, nelems=nelems))
 prob.model.add_subsystem("mass_comp", solver_comp, promotes=["*"])
 
-# prob.setup()
-# prob.run_model()
-# prob.check_partials(compact_print=true)
+prob.setup()
+prob.run_model()
+prob.check_partials(compact_print=true)
 
 include("von_mises_component.jl")
 
@@ -126,7 +128,7 @@ prob = om.Problem()
 ivc = om.IndepVarComp()
 ivc.add_output("sigma1", sigma1)
 
-vm_comp = make_component(VonMisesComp(nelems=nelems, num_stress_eval_points=num_stress_eval_points))
+vm_comp = make_component(VonMisesComp(nelems=nelems, num_stress_eval_points=num_stress_eval_points, k0=0.01))
 prob.model.add_subsystem("vm_comp", vm_comp, promotes=["*"])
 
 prob.setup()
