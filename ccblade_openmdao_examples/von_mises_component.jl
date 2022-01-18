@@ -4,11 +4,12 @@ using OpenMDAO: AbstractExplicitComp, VarData, PartialsData
 @concrete struct VonMisesComp <: AbstractExplicitComp
     nelems
     num_stress_eval_points
+    k0
 end
 
-function VonMisesComp(; nelems, num_stress_eval_points)
+function VonMisesComp(; nelems, num_stress_eval_points, k0)
 
-    return VonMisesComp(nelems, num_stress_eval_points)
+    return VonMisesComp(nelems, num_stress_eval_points, k0)
 end
 
 function OpenMDAO.setup(self::VonMisesComp)
@@ -39,7 +40,7 @@ function OpenMDAO.compute!(self::VonMisesComp, inputs, outputs)
     # Unpack the outputs.
     sigma_vm = outputs["sigma_vm"]
 
-    sigma_vm .= (sigma1.^2).^0.5
+    sigma_vm .= (sigma1.^2 .+ self.k0).^0.5
 
 end
 
@@ -48,7 +49,7 @@ function OpenMDAO.compute_partials!(self::VonMisesComp, inputs, partials)
     # Unpack the inputs.
     sigma1 = inputs["sigma1"]
     dvm_ds = partials["sigma_vm", "sigma1"]
-    sigma_vm = (sigma1.^2).^0.5
+    sigma_vm = (sigma1.^2 .+ self.k0).^0.5
 
     for i = 1:length(sigma1)
 
