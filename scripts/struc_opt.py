@@ -83,15 +83,15 @@ def get_problem(optimizer="SNOPT"):
     chord_upper = 2.0
 
     # Lower and upper limits on the twist design variable, radians.
-    theta_lower =  0.0*np.pi/180.0
-    theta_upper =  85.0*np.pi/180.0
+    theta_lower = 5.0*np.pi/180.0
+    theta_upper = 85.0*np.pi/180.0
 
     prob.model.add_design_var("chord", lower=chord_lower, upper=chord_upper, units="inch")
     prob.model.add_design_var("theta", lower=theta_lower, upper=theta_upper, units="rad")
 
     # Stress-constrained mass minimization
     prob.model.add_objective("m", ref=1e-2)
-    prob.model.add_constraint("ks.KS", upper=1.0)
+    prob.model.add_constraint("ks.KS", upper=0.5)
 
     prob.setup()
     om.n2(prob, show_browser=False, outfile='struc_opt.html')
@@ -289,10 +289,10 @@ def get_1d_problem(chord_val=None, theta_val=None, optimizer="SNOPT"):
 
     # Define the angular rotation
     rpm = 7110.0
-    omega = 0.0#rpm*2*np.pi/60
+    omega = rpm*2*np.pi/60
 
     # Set dummy loads
-    Np = np.mean(Np)*np.ones(nelems)
+    Np = np.zeros(nelems)
     Tp = np.zeros(nelems)
 
     prob = om.Problem()
@@ -326,6 +326,7 @@ def get_1d_problem(chord_val=None, theta_val=None, optimizer="SNOPT"):
                                              add_constraint=False, ref=1.0,
                                              units=None))
     prob.model.connect("sigma_vm", "ks.g")
+    #prob.model.connect("structural_group.stress_comp.sigma1", "ks.g")
 
     if optimizer == "SNOPT":
         prob.driver = om.pyOptSparseDriver(optimizer="SNOPT")
@@ -357,7 +358,7 @@ def get_1d_problem(chord_val=None, theta_val=None, optimizer="SNOPT"):
     chord_upper = 2.0
 
     # Lower and upper limits on the twist design variable, radians.
-    theta_lower = 0.0*np.pi/180.0
+    theta_lower = 5.0*np.pi/180.0
     theta_upper = 85.0*np.pi/180.0
 
     if chord_val is None:
@@ -377,7 +378,7 @@ def check_theta_opt_val():
     # Run a sweep of uniform twist values and plot the KS stress at each point
     # Then solve an optimization with uniform twist as the only design variable and check that point
 
-    theta_vals = (np.pi/180)*np.linspace(0.0, 90.0, 19)
+    theta_vals = (np.pi/180)*np.linspace(5.0, 85.0, 100)
     ks_vals = np.zeros(len(theta_vals))
     Iyy = np.zeros(len(theta_vals))
     Izz = np.zeros(len(theta_vals))
@@ -391,7 +392,7 @@ def check_theta_opt_val():
         p.set_val("theta_val", theta_vals[i])
         p.run_model()
         ks_vals[i] = p.get_val("ks.KS")
-        print(f"Theta = {theta_vals[i]}; KS = {ks_vals[i]}")
+        #print(f"Theta = {theta_vals[i]}; KS = {ks_vals[i]}")
         Iyy[i] = p.get_val("structural_group.Iyy", units="inch**4")[0]
         Izz[i] = p.get_val("structural_group.Izz", units="inch**4")[0]
         Iyz[i] = p.get_val("structural_group.Iyz", units="inch**4")[0]
@@ -406,12 +407,23 @@ def check_theta_opt_val():
     # ks_opt = p.get_val("ks.KS")
 
     # Hard-code the optimal
-    theta_opt = .78539816*180.0/np.pi
-    ks_opt = 0.67667835
+    theta_opt = 1.48352986*180.0/np.pi
+    ks_opt = 0.34065576
+
+#     fig = plt.figure()
+#     ax = plt.subplot(1, 1, 1)
+#     ax.plot(theta_vals*180.0/np.pi, ks_vals, label="Value sweep")
+#     ax.scatter(theta_opt, ks_opt, color="tab:red", label="Optimal", zorder=100)
+#
+#     ax.spines["right"].set_visible(False)
+#     ax.spines["top"].set_visible(False)
+#     ax.set_xlabel("Feather angle (deg.)")
+#     ax.set_ylabel(r"KS($\sigma$)")
+#     ax.legend(frameon=False)
 
     fig, (ax0, ax1, ax2) = plt.subplots(nrows=3, sharex=True, constrained_layout=True)
     ax0.plot((180.0/np.pi)*theta_vals, ks_vals, label="Value sweep")
-    # ax0.scatter(theta_opt, ks_opt, color="tab:red", label="Optimal", zorder=100)
+    ax0.scatter(theta_opt, ks_opt, color="tab:red", label="Optimal", zorder=100)
 
     ax0.spines["right"].set_visible(False)
     ax0.spines["top"].set_visible(False)
@@ -439,7 +451,7 @@ def check_theta_opt_val():
     ax2r.spines["top"].set_visible(False)
     ax2.spines["top"].set_visible(False)
 
-    ax2.set_xlabel("Twist (deg.)")
+    ax2.set_xlabel("Feather angle (deg.)")
 
     ax1.legend()
     h1, l1 = ax2r.get_legend_handles_labels()
@@ -470,8 +482,8 @@ def check_chord_opt_val():
     # ks_opt = p.get_val("ks.KS")
     # print("Chord = ", chord_opt)
     # print("KS(sigma) = ", ks_opt)
-    chord_opt = 1.245781
-    ks_opt = 0.9851451
+    chord_opt = 0.9471346
+    ks_opt = 0.44174087
 
     fig = plt.figure()
     ax = plt.subplot(1, 1, 1)
@@ -493,7 +505,7 @@ def plot_stress_distribution(theta=0.0):
     x, p, _, _ = get_1d_problem(theta_val=theta)
     p.run_model()
     ks = p.get_val("ks.KS")
-    print(f"Theta = {theta}; KS = {ks}")
+    #print(f"Theta = {theta}; KS = {ks}")
     sigma_vec = p.get_val("sigma_vm")
     nelems = len(x)
     num_stress_eval_points = int(len(sigma_vec)/(2*nelems))
@@ -662,16 +674,17 @@ def plot_extras(p, xe, Tp, Np):
 
 if __name__ == "__main__":
 
-    check_theta_opt_val()
+    #check_theta_opt_val()
     #check_chord_opt_val()
     # _, p, _, _ = get_1d_problem(chord_val=1.0)
     # p.run_driver()
-    # print(p.get_val("theta_val"))
-    # print(p.get_val("ks.KS"))
+    # print("chord = ", p.get_val("chord_val"))
+    # print("theta = ", p.get_val("theta_val"))
+    # print("KS = ", p.get_val("ks.KS"))
 
     #plot_stress_distribution(theta=89.0*np.pi/180.0)
 
     # xe, p, Np, Tp = get_1d_problem()
     # p.run_model()
 
-    #run_optimization(use_splines=True, optimizer="SNOPT")
+    run_optimization(use_splines=False, optimizer="SNOPT")

@@ -40,8 +40,8 @@ def get_problem():
     chord_upper = 2.0
 
     # Lower and upper limits on the twist design variable, radians.
-    theta_lower =  0.0*np.pi/180.0
-    theta_upper =  85.0*np.pi/180.0
+    theta_lower = 5.0*np.pi/180.0
+    theta_upper = 85.0*np.pi/180.0
 
     # Target thrust value in Newtons.
     thrust_target = 97.246
@@ -92,13 +92,13 @@ def get_problem():
     struc_group = StructuralGroup(nelems=nelems, num_stress_eval_points=num_stress_eval_points)
     prob.model.add_subsystem("structural_group", struc_group,
                              promotes_inputs=["omega", "Tp", "Np", "chord", "theta"],
-                             promotes_outputs=["sigma1", "m"])
+                             promotes_outputs=["sigma_vm", "m"])
 
     # Aggregate the stress
     prob.model.add_subsystem("ks", om.KSComp(width=nelems*num_stress_eval_points*2,
                                              add_constraint=False, ref=1.0,
                                              units=None))
-    prob.model.connect("sigma1", "ks.g")
+    prob.model.connect("sigma_vm", "ks.g")
 
     # Set the optimizer
     prob.model.linear_solver = om.DirectSolver()
@@ -113,11 +113,9 @@ def get_problem():
     prob.model.add_constraint("ks.KS", upper=1.0)
 
     prob.setup(check=True)
-    prob.run_model()
-    #print(prob.get_val("efficiency"))
-    #print(prob.get_val("thrust"))
+    #prob.run_model()
     #om.n2(prob, show_browser=False, outfile='struc_aero_opt.html')
-    prob.driver.scaling_report()
+    #prob.driver.scaling_report()
 
     return prob
 
@@ -129,8 +127,8 @@ def run_optimization():
 
     xe = p.get_val("radii", units="inch")[0]
     print("mass = ", p.get_val("m", units="kg"))
-    print("KS(sigma1)/sigma_y = ", p.get_val("ks.KS"))
-    print("max(sigma1) = ", np.amax(p.get_val("sigma1")))
+    print("KS(sigma)/sigma_y = ", p.get_val("ks.KS"))
+    print("max(sigma) = ", np.amax(p.get_val("sigma_vm")))
 
     # Save the chord and twist distribution to a csv
     chord = p.get_val("chord", units="inch")[0]
@@ -194,7 +192,7 @@ def plot_extras(p, xe, Tp, Np):
     Fx = p.get_val("structural_group.solver_comp.Fx")
     My = p.get_val("structural_group.solver_comp.My")
     Mz = p.get_val("structural_group.solver_comp.Mz")
-    sigma1 = p.get_val("sigma1")
+    sigma1 = p.get_val("sigma_vm")
     sigma_x1 = np.zeros(nelems)
     num_stress_eval_points = 20
     for i in range(nelems):
