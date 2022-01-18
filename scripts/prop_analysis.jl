@@ -1,3 +1,6 @@
+using DataFrames
+using CSV
+
 using GXBeam, LinearAlgebra
 using CCBladeLoadingExample
 
@@ -94,26 +97,29 @@ function create_assembly(; points, Tp, Np, omega, chord, theta, A, Iyy, Izz, Iyz
     return assembly, system
 end
 
-function run_analysis(;linear=true)
+function run_analysis(;linear=true, chord=nothing, theta=nothing, fname="prop")
 
     # Compute the aerodynamic forces and set up the element discretization
     x, Np, Tp = CCBladeLoadingExample.run_ccblade()
-    nelems = length(x)-1
+    nelems = length(x)
 
     # Initialize the design variables
     span = 12.0*0.0254
     Rhub = 0.2*span
-    chord = 1.0*0.0254*ones(nelems)  # (inch)
-    theta = (0.0*pi/180.0)*ones(nelems)  # (rad)
+    if chord == nothing
+        chord = 1.0*0.0254*ones(nelems)  # (inch)
+    end
+    if theta == nothing
+        theta = (0.0*pi/180.0)*ones(nelems)  # (rad)
+    end
 
     # Define the angular rotation
     rpm = 7110.0
-    omega = -rpm*2*pi/60
+    omega = 0.0 #-rpm*2*pi/60
 
-    # Some some simpler loads to check the analysis
-    Np = zero(Np)
+    # Some some simplified loads to check the analysis
+    #Np = zero(Np)
     Tp = zero(Tp)
-    #omega = -omega
 
     # Define the reference area properties
     A_ref = 821.8
@@ -164,7 +170,7 @@ function run_analysis(;linear=true)
     My = [state.elements[ielem].M[2] for ielem = 1:length(assembly.elements)]
     Mz = [state.elements[ielem].M[3] for ielem = 1:length(assembly.elements)]
 
-    write_output(assembly, state; points=points, chord=chord, theta=theta)
+    write_output(assembly, state; points=points, chord=chord, theta=theta, fname=fname)
 
     return
 end
@@ -224,4 +230,10 @@ function write_output(assembly, state; points, chord, theta, fname="prop")
     return nothing
 end
 
-run_analysis(linear=false)
+# Get saved design values to pass in to the analysis
+csv_name = "chord_theta.csv"
+df = DataFrame(CSV.File(csv_name))
+chord = df[:, :chord]
+theta = df[:, :theta]
+
+run_analysis(linear=true; fname="only_normal_forces")
