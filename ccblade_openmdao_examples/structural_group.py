@@ -18,6 +18,8 @@ class StructuralGroup(om.Group):
         self.options.declare("Rhub", default=2.4*0.0254)
         self.options.declare("ys", default=345e6)
         self.options.declare("rho", default=2780.0)
+        self.options.declare("zrel_cm", default=0.41)
+        self.options.declare("zrel_rot", default=0.25)
 
         return
 
@@ -29,10 +31,12 @@ class StructuralGroup(om.Group):
         Rhub = self.options["Rhub"]
         ys = self.options["ys"]
         rho = self.options["rho"]
+        zrel_cm = self.options["zrel_cm"]
+        zrel_rot = self.options["zrel_rot"]
 
         area_comp = make_component(
             AreaComp(
-                nelems=nelems, A_ref=821.8, Iyy_ref=23543.4, Izz_ref=5100.8))
+                nelems=nelems, A_ref=821.8, Iyy_ref=23543.4, Izz_ref=5100.8, zrel_cm=zrel_cm, zrel_rot=zrel_rot))
 
         solver_comp = make_component(
             SolverComp(
@@ -40,11 +44,11 @@ class StructuralGroup(om.Group):
 
         stress_comp = make_component(
             StressComp(
-                nelems=nelems, num_stress_eval_points=num_stress_eval_points, ys=ys))
+                nelems=nelems, num_stress_eval_points=num_stress_eval_points, ys=ys, zrel_rot=zrel_rot))
 
         vm_comp = make_component(
             VonMisesComp(
-                nelems=nelems, num_stress_eval_points=num_stress_eval_points))
+                nelems=nelems, num_stress_eval_points=num_stress_eval_points, k0=0.01))
 
         mass_comp = make_component(
             MassComp(rho=rho, span=span, nelems=nelems))
