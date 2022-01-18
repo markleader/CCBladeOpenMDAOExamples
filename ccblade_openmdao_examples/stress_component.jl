@@ -14,11 +14,12 @@ end
     nelems
     num_stress_eval_points
     ys
+    zrel_rot
 end
 
-function StressComp(; nelems, num_stress_eval_points, ys)
+function StressComp(; nelems, num_stress_eval_points, ys, zrel_rot)
 
-    return StressComp(nelems, num_stress_eval_points, ys)
+    return StressComp(nelems, num_stress_eval_points, ys, zrel_rot)
 end
 
 function OpenMDAO.setup(self::StressComp)
@@ -84,8 +85,8 @@ function OpenMDAO.compute!(self::StressComp, inputs, outputs)
     s = sin.(theta)
     c = cos.(theta)
     dI = @. Iyy*Izz - Iyz*Iyz
-    z_rel = collect(range(0.0, 1.0, length=self.num_stress_eval_points)) .- 0.25
-    y1_rel, y2_rel = NACA0012(z_rel .+ 0.25)
+    z_rel = collect(range(0.0, 1.0, length=self.num_stress_eval_points)) .- self.zrel_rot
+    y1_rel, y2_rel = NACA0012(z_rel.+ self.zrel_rot)
 
     for i = 1:length(chord)
         for j = 1:self.num_stress_eval_points
@@ -129,8 +130,8 @@ function OpenMDAO.compute_partials!(self::StressComp, inputs, partials)
     s = sin.(theta)
     c = cos.(theta)
     dI = @. Iyy*Izz - Iyz*Iyz
-    z_rel = range(0.0, 1.0, length=self.num_stress_eval_points) .- 0.25
-    y1_rel, y2_rel = NACA0012(z_rel .+ 0.25)
+    z_rel = range(0.0, 1.0, length=self.num_stress_eval_points) .- self.zrel_rot
+    y1_rel, y2_rel = NACA0012(z_rel .+ self.zrel_rot)
 
     for i = 1:length(chord)
         for j = 1:self.num_stress_eval_points
