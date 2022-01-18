@@ -6,11 +6,13 @@ using OpenMDAO: AbstractExplicitComp, VarData, PartialsData, get_rows_cols
     A_ref
     Iyy_ref
     Izz_ref
+    zrel_cm
+    zrel_rot
 end
 
-function AreaComp(; nelems, A_ref, Iyy_ref, Izz_ref)
+function AreaComp(; nelems, A_ref, Iyy_ref, Izz_ref, zrel_cm, zrel_rot)
 
-    return AreaComp(nelems, A_ref, Iyy_ref, Izz_ref)
+    return AreaComp(nelems, A_ref, Iyy_ref, Izz_ref, zrel_cm, zrel_rot)
 end
 
 function OpenMDAO.setup(self::AreaComp)
@@ -58,14 +60,15 @@ function OpenMDAO.compute!(self::AreaComp, inputs, outputs)
     c = cos.(theta)
     s2 = sin.(theta).^2
     c2 = cos.(theta).^2
+    dz = (self.zrel_cm - self.zrel_rot)*chord
 
     k = chord/100  # scale factor
     A[1:end] = (k.^2)*self.A_ref
     Iyy0 = (k.^4)*self.Iyy_ref
     Izz0 = (k.^4)*self.Izz_ref
-    Iyy[1:end] = @. c2 *Iyy0 + s2 *Izz0
-    Izz[1:end] = @. s2 *Iyy0 + c2 *Izz0
-    Iyz[1:end] = @. (Izz0 - Iyy0)*s*c
+    Iyy[1:end] = @. c2 *Iyy0 + s2 *Izz0 + (k.^2)*self.A_ref .* (dz .* c).^2
+    Izz[1:end] = @. s2 *Iyy0 + c2 *Izz0 + (k.^2)*self.A_ref .* (-dz .* s).^2
+    Iyz[1:end] = @. (Izz0 - Iyy0)*s*c + (k.^2)*self.A_ref .* (-dz .* s).*(dz .* c)
 
 end
 
@@ -87,6 +90,8 @@ function OpenMDAO.compute_partials!(self::AreaComp, inputs, partials)
     c = cos.(theta)
     s2 = s.^2
     c2 = c.^2
+    dz = (self.zrel_cm - self.zrel_rot)*chord
+    dz_rel = (self.zrel_cm - self.zrel_rot)
 
     k = chord/100  # scale factor
     A = (k.^2)*self.A_ref
@@ -100,25 +105,16 @@ function OpenMDAO.compute_partials!(self::AreaComp, inputs, partials)
     dc2 = @. -2 *s*c
     dcs = @. c2 - s2
 
-#     dA_dc .= @. (2.0/chord)*A
-#     dIyy_dc .= (4.0/chord)*Iyy
-#     dIzz_dc .= (4.0/chord)*Izz
-#     dIyz_dc .= (4.0/chord)*Iyz
-#
-#     dIyy_dtheta .= @. dc2*Iyy0 + ds2*Izz0
-#     dIzz_dtheta .= @. ds2*Iyy0 + dc2*Izz0
-#     dIyz_dtheta .= @. (Iyy0 - Izz0)*dcs
-
     for i = 1:length(chord)
 
         dA_dc[i]   = (2.0/chord[i])*A[i]
-        dIyy_dc[i] = (4.0/chord[i])*Iyy[i]
-        dIzz_dc[i] = (4.0/chord[i])*Izz[i]
-        dIyz_dc[i] = (4.0/chord[i])*Iyz[i]
+        dIyy_dc[i] = (4.0/chord[i])*Iyy[i] + 4*chord[i]*A[i]*(dz_rel*c2[i])^2
+        dIzz_dc[i] = (4.0/chord[i])*Izz[i] + 4*chord[i]*A[i]*(dz_rel*s2[i])^2
+        dIyz_dc[i] = (4.0/chord[i])*Iyz[i] - 4*chord[i]*A[i]*(dz_rel*c[i])*(dz_rel*s[i])
 
-        dIyy_dtheta[i] = dc2[i]*Iyy0[i] + ds2[i]*Izz0[i]
-        dIzz_dtheta[i] = ds2[i]*Iyy0[i] + dc2[i]*Izz0[i]
-        dIyz_dtheta[i] = (Izz0[i] - Iyy0[i])*dcs[i]
+        dIyy_dtheta[i] = dc2[i]*Iyy0[i] + ds2[i]*Izz0[i] + (A[i]*dz[i]^2)*dc2[i]
+        dIzz_dtheta[i] = ds2[i]*Iyy0[i] + dc2[i]*Izz0[i] + (A[i]*dz[i]^2)*ds2[i]
+        dIyz_dtheta[i] = (Izz0[i] - Iyy0[i])*dcs[i] - (A[i]*dz[i]^2)*dcs[i]
     end
 
 end
