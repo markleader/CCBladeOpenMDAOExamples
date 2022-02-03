@@ -74,12 +74,12 @@ function create_assembly(; points, Tp, Np, omega, chord, theta, A, Iyy, Izz, Iyz
         # radii: x locations of nodes
         # f_aero: vector with aero forces
 
-        if x < radii[1] || x >= radii[end]  # x not in range of radii
+        if real(x) < real(radii[1]) || real(x) >= real(radii[end])  # x not in range of radii
             q = 0
-        elseif x == radii[1]
+        elseif real(x) == real(radii[1])
             q = f_aero[1]
         else
-            k = findfirst(radii .>= x)
+            k = findfirst(real(radii) .>= real(x))
             j = k - 1
             q = f_aero[j]
         end
@@ -119,7 +119,7 @@ function SolverComp(; rho, E, nu, Rhub, span, nelems)
         Iyz = x[:Iyz]
 
         xpts = zeros(T, nelems+1)
-        xvals = collect(range(Rhub, span, length=nelems+1))
+        xvals = collect(range(self.Rhub, self.span, length=nelems+1))
         for i = 1:(nelems+1)
             xpts[i] = xvals[i]
         end
@@ -232,11 +232,20 @@ function OpenMDAO.compute!(self::SolverComp, inputs, outputs)
     My = outputs["My"]
     Mz = outputs["Mz"]
 
+    println(Np)
+    println()
+
+    T = eltype(omega)
+
     E = self.E
     rho = self.rho
     nu = self.nu
 
-    xpts = collect(range(self.Rhub, self.span, length=self.nelems+1))
+    xpts = zeros(T, nelems+1)
+    xvals = collect(range(self.Rhub, self.span, length=nelems+1))
+    for i = 1:(nelems+1)
+        xpts[i] = xvals[i]
+    end
     ypts = zero(xpts)
     zpts = zero(xpts)
     points = [[xpts[i], ypts[i], zpts[i]] for i = 1:(self.nelems+1)]
