@@ -12,7 +12,7 @@ from ccblade_openmdao_examples.structural_group import StructuralGroup
 from ccblade_openmdao_examples.gxbeam_openmdao_component import MassComp
 
 
-def get_problem(optimizer="SNOPT"):
+def get_problem(optimizer="SNOPT", use_ks=True):
 
     # Propeller dimensions
     D = 24.0*0.0254  # Diameter in meters.
@@ -48,10 +48,11 @@ def get_problem(optimizer="SNOPT"):
                              promotes_outputs=["sigma_vm", "m"])
 
     # Aggregate the stress
-    prob.model.add_subsystem("ks", om.KSComp(width=nelems*num_stress_eval_points*2,
-                                             add_constraint=False, ref=1.0,
-                                             units=None))
-    prob.model.connect("sigma_vm", "ks.g")
+    if use_ks:
+        prob.model.add_subsystem("ks", om.KSComp(width=nelems*num_stress_eval_points*2,
+                                                add_constraint=False, ref=1.0,
+                                                units=None))
+        prob.model.connect("sigma_vm", "ks.g")
 
     if optimizer == "SNOPT":
         prob.driver = om.pyOptSparseDriver(optimizer="SNOPT")
@@ -80,7 +81,7 @@ def get_problem(optimizer="SNOPT"):
 
     # Lower and upper limits on the chord design variable, in inches.
     chord_lower = 0.5
-    chord_upper = 2.0
+    chord_upper = 5.0
 
     # Lower and upper limits on the twist design variable, radians.
     theta_lower = 5.0*np.pi/180.0
@@ -91,7 +92,11 @@ def get_problem(optimizer="SNOPT"):
 
     # Stress-constrained mass minimization
     prob.model.add_objective("m", ref=1e-2)
-    prob.model.add_constraint("ks.KS", upper=0.5)
+
+    if use_ks:
+        prob.model.add_constraint("ks.KS", upper=0.5)
+    else:
+        prob.model.add_constraint("sigma_vm", upper=0.5)
 
     prob.setup()
     om.n2(prob, show_browser=False, outfile='struc_opt.html')
@@ -177,10 +182,10 @@ def get_problem_w_splines(optimizer="SNOPT"):
 
     # Lower and upper limits on the chord design variable, in inches.
     chord_lower = 0.5
-    chord_upper = 2.0
+    chord_upper = 5.0
 
     # Lower and upper limits on the twist design variable, radians.
-    theta_lower = 0.0*np.pi/180.0
+    theta_lower = 5.0*np.pi/180.0
     theta_upper = 85.0*np.pi/180.0
 
     prob.model.add_design_var("chord_cp", lower=chord_lower, upper=chord_upper, units="inch")
@@ -195,17 +200,18 @@ def get_problem_w_splines(optimizer="SNOPT"):
 
     return x, prob, Np, Tp
 
-def run_optimization(use_splines=False, optimizer='SNOPT'):
+def run_optimization(use_splines=False, optimizer='SNOPT', use_ks=True):
     # Run the structural optimization problem and plot the outputs
 
     if use_splines:
         xe, p, Np, Tp = get_problem_w_splines(optimizer=optimizer)
     else:
-        xe, p, Np, Tp = get_problem(optimizer=optimizer)
+        xe, p, Np, Tp = get_problem(optimizer=optimizer, use_ks=use_ks)
     p.run_driver()
 
     print("mass = ", p.get_val("m", units="kg"))
-    print("KS(sigma_vm)/sigma_y = ", p.get_val("ks.KS"))
+    if use_ks:
+        print("KS(sigma_vm)/sigma_y = ", p.get_val("ks.KS"))
     print("max(sigma_vm) = ", np.amax(p.get_val("sigma_vm")))
 
     # Save the chord and twist distribution to a csv
@@ -687,4 +693,4 @@ if __name__ == "__main__":
     # xe, p, Np, Tp = get_1d_problem()
     # p.run_model()
 
-    run_optimization(use_splines=False, optimizer="SNOPT")
+    run_optimization(use_splines=False, optimizer="SNOPT", use_ks=False)
