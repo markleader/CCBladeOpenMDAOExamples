@@ -13,9 +13,9 @@ from ccblade_openmdao_examples.structural_group import StructuralGroup
 def get_problem():
 
     B = 3  # Number of blades.
-    D = 24.0  # Diameter in inches.
-    P = 16.0  # Pitch in inches (used in the twist distribution).
-    c = 1.5   # Constant chord in inches.
+    D = 24.0*0.0254  # Diameter in inches.
+    P = 16.0*0.0254  # Pitch in inches (used in the twist distribution).
+    c = 1.5*0.0254   # Constant chord in inches.
     Rtip = 0.5*D
     Rhub = 0.2*Rtip  # Just guessing on the hub diameter.
 
@@ -36,8 +36,8 @@ def get_problem():
     pitch = 0.0
 
     # Lower and upper limits on the chord design variable, inches.
-    chord_lower = 0.5
-    chord_upper = 2.0
+    chord_lower = 0.5*0.0254
+    chord_upper = 5.0*0.0254
 
     # Lower and upper limits on the twist design variable, radians.
     theta_lower = 5.0*np.pi/180.0
@@ -60,10 +60,10 @@ def get_problem():
     prob = om.Problem()
 
     ivc = om.IndepVarComp()
-    ivc.add_output("Rhub", val=Rhub, units="inch")
-    ivc.add_output("Rtip", val=Rtip, units="inch")
-    ivc.add_output("radii_cp", val=radii_cp0, units="inch")
-    ivc.add_output("chord_cp", val=chord_cp0, units="inch")
+    ivc.add_output("Rhub", val=Rhub, units="m")
+    ivc.add_output("Rtip", val=Rtip, units="m")
+    ivc.add_output("radii_cp", val=radii_cp0, units="m")
+    ivc.add_output("chord_cp", val=chord_cp0, units="m")
     ivc.add_output("theta_cp", val=theta_cp0, units="rad")
     ivc.add_output("v", val=v, shape=num_operating_points, units="m/s")
     ivc.add_output("omega", val=omega, shape=num_operating_points, units="rad/s")
@@ -74,8 +74,8 @@ def get_problem():
     x_interp = cell_centered(nelems, 0.0, 1.0)
     interp_options = {"delta_x": 0.1}
     comp = om.SplineComp(method="akima", interp_options=interp_options, x_cp_val=x_cp, x_interp_val=x_interp)
-    comp.add_spline(y_cp_name="radii_cp", y_interp_name="radii", y_units="inch")
-    comp.add_spline(y_cp_name="chord_cp", y_interp_name="chord", y_units="inch")
+    comp.add_spline(y_cp_name="radii_cp", y_interp_name="radii", y_units="m")
+    comp.add_spline(y_cp_name="chord_cp", y_interp_name="chord", y_units="m")
     comp.add_spline(y_cp_name="theta_cp", y_interp_name="theta", y_units="rad")
     prob.model.add_subsystem("akima_comp", comp,
                              promotes_inputs=["radii_cp", "chord_cp", "theta_cp"],
@@ -105,8 +105,8 @@ def get_problem():
     prob.driver = om.pyOptSparseDriver(optimizer="SNOPT")
 
     # Define the optimization problem
-    prob.model.add_design_var("chord_cp", lower=chord_lower, upper=chord_upper, units="inch")
-    prob.model.add_design_var("theta_cp", lower=theta_lower, upper=theta_upper, units="rad")
+    prob.model.add_design_var("chord_cp", lower=chord_lower, upper=chord_upper, ref=1e-2)
+    prob.model.add_design_var("theta_cp", lower=theta_lower, upper=theta_upper, ref=1e0)
 
     prob.model.add_objective("efficiency", ref=-1e0)
     prob.model.add_constraint("thrust", lower=thrust_target, upper=thrust_target, units="N", ref=1e2)
@@ -114,7 +114,8 @@ def get_problem():
 
     prob.setup(check=True)
     #prob.run_model()
-    #om.n2(prob, show_browser=False, outfile='struc_aero_opt.html')
+    om.n2(prob, show_browser=False, outfile='struc_aero_opt.html')
+    prob.summary()
     #prob.driver.scaling_report()
 
     return prob
@@ -139,10 +140,10 @@ def run_optimization():
     # Plot the chord and twist distribution
     plot_chord_theta(xe, chord, theta)
 
-    # # Plot the other values of interest
-    # Tp = p.get_val("Tp")
-    # Np = p.get_val("Np")
-    # plot_extras(p, xe, Tp, Np)
+    # Plot the other values of interest
+    Tp = p.get_val("Tp")
+    Np = p.get_val("Np")
+    plot_extras(p, xe, Tp, Np)
 
     return
 
@@ -171,7 +172,7 @@ def plot_chord_theta(xe, chord, theta):
     # ax0.set_xticklabels([])
 
     ax0.set_ylabel("Chord (in)")
-    ax1.set_xlabel(r"$x_1$ (in)")
+    ax1.set_xlabel(r"$x$ (in)")
     ax1.set_ylabel("Twist (deg.)")
 
     plt.savefig("chord_theta.pdf", transparent=False)
@@ -186,9 +187,9 @@ def plot_extras(p, xe, Tp, Np):
     fig, (ax0, ax1, ax2, ax3) = plt.subplots(nrows=4, sharex=True, constrained_layout=True)
 
     E = 72.4e9
-    Hyy = E*p.get_val("structural_group.Iyy")
-    Hzz = E*p.get_val("structural_group.Izz")
-    Hyz = E*p.get_val("structural_group.Iyz")
+    Iyy = E*p.get_val("structural_group.Iyy", units="inch**4")
+    Izz = E*p.get_val("structural_group.Izz", units="inch**4")
+    Iyz = E*p.get_val("structural_group.Iyz", units="inch**4")
     Fx = p.get_val("structural_group.solver_comp.Fx")
     My = p.get_val("structural_group.solver_comp.My")
     Mz = p.get_val("structural_group.solver_comp.Mz")
@@ -201,9 +202,9 @@ def plot_extras(p, xe, Tp, Np):
     ax0.plot(xe, Tp, label=r"$T_p$")
     ax0.plot(xe, Np, label=r"$N_p$")
 
-    ax1.plot(xe, Hyy, label=r"$H_{yy}$")
-    ax1.plot(xe, Hzz, label=r"$H_{zz}$")
-    ax1.plot(xe, Hyz, label=r"$H_{yz}$")
+    ax1.plot(xe, Iyy, label=r"$I_{yy}$")
+    ax1.plot(xe, Izz, label=r"$I_{zz}$")
+    ax1.plot(xe, Iyz, label=r"$I_{yz}$")
 
     ax2r = ax2.twinx()
     ax2r.plot(xe, Fx, c="C0", label=r"$N_{x}$")
@@ -238,11 +239,11 @@ def plot_extras(p, xe, Tp, Np):
 
     fs = 6
     ax0.set_ylabel("Aero forces (N/m)", fontsize=fs)
-    ax1.set_ylabel(r"Bending stiffness (N-m$^2$)", fontsize=fs)
+    ax1.set_ylabel(r"Moment of inertia (in$^4$)", fontsize=fs)
     ax2.set_ylabel("Bending moment (N-m)", fontsize=fs)
     ax2r.set_ylabel("Axial force (N)", fontsize=fs)
-    ax3.set_ylabel(r"$\sigma_1(x_1)/\sigma_y$")
-    ax3.set_xlabel(r"$x_1$ (in)")
+    ax3.set_ylabel(r"$\sigma_vM(x)/\sigma_y$")
+    ax3.set_xlabel(r"$x$ (in)")
 
     leg0 = ax0.legend()
     leg1 = ax1.legend()
