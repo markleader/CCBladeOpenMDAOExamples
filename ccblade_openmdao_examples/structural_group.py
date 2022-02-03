@@ -1,4 +1,3 @@
-from email.policy import default
 import numpy as np
 
 import openmdao.api as om
@@ -12,14 +11,14 @@ from ccblade_openmdao_examples.gxbeam_openmdao_component import MassComp
 
 class StructuralGroup(om.Group):
     def initialize(self):
-        self.options.declare("nelems", types=int)
-        self.options.declare("num_stress_eval_points", types=int)
-        self.options.declare("span", default=12.0*0.0254)
-        self.options.declare("Rhub", default=2.4*0.0254)
-        self.options.declare("ys", default=345e6)
-        self.options.declare("rho", default=2780.0)
-        self.options.declare("zrel_cm", default=0.41)
-        self.options.declare("zrel_rot", default=0.25)
+        self.options.declare("nelems", types=int, desc="number of elements - same for aerodynamic and structural analyses")
+        self.options.declare("num_stress_eval_points", types=int, desc="number of points to query stress per element")
+        self.options.declare("span", default=12.0*0.0254, desc="distance to tip of the blade (m)")
+        self.options.declare("Rhub", default=2.4*0.0254, desc="hub radius (m)")
+        self.options.declare("ys", default=345e6, desc="material yield stress (Pa)")
+        self.options.declare("rho", default=2780.0, desc="material density (kg/m^3)")
+        self.options.declare("zrel_cm", default=0.41, lower=0.0, upper=1.0, desc="distance from the airfoil tip to the center of mass, as a percent of chord")
+        self.options.declare("zrel_rot", default=0.25, lower=0.0, upper=1.0, desc="distance from the airfoil tip to the axis of twist, as a percent of chord")
 
         return
 
