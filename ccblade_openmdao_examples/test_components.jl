@@ -4,9 +4,9 @@ include("area_component.jl")
 
 prob = om.Problem()
 
-nelems = 5
+nelems = 10
 chord = collect(range(1.5*0.0254, 0.5*0.0254, length=nelems))
-theta = 1.57079*ones(nelems)
+theta = collect(range(40.0*pi/180.0, 10.0*pi/180.0, length=nelems))
 
 A_ref = 821.8
 Iyy_ref = 23543.4
@@ -22,20 +22,17 @@ prob.model.add_subsystem("ivc", ivc, promotes=["*"])
 area_comp = make_component(AreaComp(nelems=nelems, A_ref=A_ref, Iyy_ref=Iyy_ref, Izz_ref=Izz_ref, zrel_cm=zrel_cm, zrel_rot=zrel_rot))
 prob.model.add_subsystem("area_comp", area_comp, promotes=["*"])
 
-# prob.setup(force_alloc_complex=true)
-# prob.run_model()
-# prob.check_partials(compact_print=true, method="cs")
+prob.setup(force_alloc_complex=true)
+prob.run_model()
+prob.check_partials(compact_print=true, method="cs")
 
 include("stress_component.jl")
 
 prob = om.Problem()
 
-nelems = 5
 Nx = collect(range(1000.0, 0.0, length=nelems))
 My = collect(range(100.0, 0.0, length=nelems))
 Mz = collect(range(500.0, 0.0, length=nelems))
-chord = collect(range(1.5*0.0254, 0.5*0.0254, length=nelems))
-theta = collect(range(1.0, 0.0, length=nelems))
 A = collect(range(0.01, 0.005, length=nelems))
 Iyy = collect(range(0.002, 0.001, length=nelems))
 Izz = collect(range(0.002, 0.001, length=nelems))
@@ -56,9 +53,9 @@ prob.model.add_subsystem("ivc", ivc, promotes=["*"])
 stress_comp = make_component(StressComp(nelems=nelems, num_stress_eval_points=50, ys=345e6, zrel_rot=zrel_rot))
 prob.model.add_subsystem("stress_comp", stress_comp, promotes=["*"])
 
-# prob.setup(force_alloc_complex=true)
-# prob.run_model()
-# prob.check_partials(compact_print=true, method="cs")
+prob.setup(force_alloc_complex=true)
+prob.run_model()
+prob.check_partials(compact_print=true, method="cs")
 
 include("gxbeam_component.jl")
 
@@ -66,13 +63,10 @@ prob = om.Problem()
 
 span = 0.3
 Rhub = 0.2*span
-nelems = 10
 omega = 7110.0*2*pi/60
 xe = collect(range(Rhub, span, length=nelems))
 Tp = collect(range(10.0, 50.0, length=nelems))
 Np = collect(range(10.0, 200.0, length=nelems))
-chord = collect(range(1.5*0.0254, 0.5*0.0254, length=nelems))
-theta = collect(range(1.0, 0.0, length=nelems))
 
 s = sin.(theta)
 c = cos.(theta)
@@ -102,6 +96,9 @@ prob.model.add_subsystem("ivc", ivc, promotes=["*"])
 solver_comp = make_component(SolverComp(rho=2780.0, E=72.4e9, nu=0.33, Rhub=Rhub, span=span, nelems=nelems))
 prob.model.add_subsystem("solver_comp", solver_comp, promotes=["*"])
 
+prob.setup(force_alloc_complex=true)
+prob.run_model()
+prob.check_partials(compact_print=true, method="cs")
 # prob.setup()
 # prob.run_model()
 # prob.check_partials(compact_print=true)
@@ -115,9 +112,9 @@ ivc.add_output("A", A, units="m**2")
 solver_comp = make_component(MassComp(rho=2600.0, span=span, nelems=nelems))
 prob.model.add_subsystem("mass_comp", solver_comp, promotes=["*"])
 
-prob.setup()
+prob.setup(force_alloc_complex=true)
 prob.run_model()
-prob.check_partials(compact_print=true)
+prob.check_partials(compact_print=true, method="cs")
 
 include("von_mises_component.jl")
 
@@ -131,6 +128,6 @@ ivc.add_output("sigma1", sigma1)
 vm_comp = make_component(VonMisesComp(nelems=nelems, num_stress_eval_points=num_stress_eval_points, k0=0.01))
 prob.model.add_subsystem("vm_comp", vm_comp, promotes=["*"])
 
-prob.setup()
+prob.setup(force_alloc_complex=true)
 prob.run_model()
-prob.check_partials(compact_print=true)
+prob.check_partials(compact_print=true, method="cs")

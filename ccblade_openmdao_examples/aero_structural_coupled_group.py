@@ -25,7 +25,7 @@ class AeroStructuralGroup(om.Group):
         self.options.declare("num_blades", types=int)
         self.options.declare("rho0", types=float, desc="air density (kg/m^3)")
         self.options.declare("mu", types=float)
-        self.options.declare("speefofsound", types=float, desc="(m/s)")
+        self.options.declare("speedofsound", types=float, desc="(m/s)")
 
         return
 
@@ -49,22 +49,22 @@ class AeroStructuralGroup(om.Group):
         mu = self.options["mu"]
         speedofsound = self.options["speedofsound"]
 
-        struc_group = StructuralGroup(
-            nelems=nelems, num_stress_eval_points=num_stress_eval_points,
-            span=Rtip, Rhub=Rhub, ys=ys, rho=rho, zrel_cm=zrel_cm, zrel_rot=zrel_rot)
-
         aero_comp = make_component(
             BEMTRotorCAComp(
                 af_fname=af_fname, cr75=c/Rtip, Re_exp=Re_exp,
                 num_operating_points=num_operating_points, num_blades=num_blades,
                 num_radial=nelems, rho=rho0, mu=mu, speedofsound=speedofsound))
 
-        self.add_subsystem(name="struc_group", subsys=struc_group,
-                           promotes_inputs=["omega", "Tp", "Np", "chord", "theta"],
-                           promotes_outputs=["sigma_vm", "m"])
+        struc_group = StructuralGroup(
+            nelems=nelems, num_stress_eval_points=num_stress_eval_points,
+            span=Rtip, Rhub=Rhub, ys=ys, rho=rho, zrel_cm=zrel_cm, zrel_rot=zrel_rot)
 
         self.add_subsystem(name="bemt_rotor_comp", subsys=aero_comp,
                            promotes_inputs=["Rhub", "Rtip", "radii", "chord", "theta", "v", "omega", "pitch"],
                            promotes_outputs=["thrust", "torque", "efficiency", "Tp", "Np"])
+
+        self.add_subsystem(name="struc_group", subsys=struc_group,
+                           promotes_inputs=["omega", "Tp", "Np", "chord", "theta"],
+                           promotes_outputs=["sigma_vm", "m"])
 
         self.linear_solver = om.DirectSolver()

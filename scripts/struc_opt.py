@@ -9,10 +9,10 @@ from julia import CCBladeLoadingExample
 from paropt.paropt_driver import ParOptDriver
 
 from ccblade_openmdao_examples.structural_group import StructuralGroup
-from ccblade_openmdao_examples.gxbeam_openmdao_component import MassComp
+#from ccblade_openmdao_examples.gxbeam_openmdao_component import MassComp
 
 
-def get_problem(optimizer="SNOPT", use_ks=True):
+def get_problem(optimizer="SNOPT", use_ks=True, sf=3.0):
 
     # Propeller dimensions
     D = 24.0*0.0254  # Diameter in meters.
@@ -94,16 +94,16 @@ def get_problem(optimizer="SNOPT", use_ks=True):
     prob.model.add_objective("m", ref=1e-2)
 
     if use_ks:
-        prob.model.add_constraint("ks.KS", upper=0.5)
+        prob.model.add_constraint("ks.KS", upper=1.0/sf)
     else:
-        prob.model.add_constraint("sigma_vm", upper=0.5)
+        prob.model.add_constraint("sigma_vm", upper=1.0/sf)
 
     prob.setup()
     om.n2(prob, show_browser=False, outfile='struc_opt.html')
 
     return x, prob, Np, Tp
 
-def get_problem_w_splines(optimizer="SNOPT"):
+def get_problem_w_splines(optimizer="SNOPT", use_ks=True, sf=3.0):
 
     # Propeller dimensions
     D = 24.0*0.0254  # Diameter in meters.
@@ -150,10 +150,11 @@ def get_problem_w_splines(optimizer="SNOPT"):
                              promotes_outputs=["sigma_vm", "m"])
 
     # Aggregate the stress
-    prob.model.add_subsystem("ks", om.KSComp(width=nelems*num_stress_eval_points*2,
-                                             add_constraint=False, ref=1.0,
-                                             units=None))
-    prob.model.connect("sigma_vm", "ks.g")
+    if use_ks:
+        prob.model.add_subsystem("ks", om.KSComp(width=nelems*num_stress_eval_points*2,
+                                                add_constraint=False, ref=1.0,
+                                                units=None))
+        prob.model.connect("sigma_vm", "ks.g")
 
     if optimizer == "SNOPT":
         prob.driver = om.pyOptSparseDriver(optimizer="SNOPT")
@@ -193,20 +194,24 @@ def get_problem_w_splines(optimizer="SNOPT"):
 
     # Stress-constrained mass minimization
     prob.model.add_objective("m", ref=1e-2)
-    prob.model.add_constraint("ks.KS", upper=1.0)
+
+    if use_ks:
+        prob.model.add_constraint("ks.KS", upper=1.0/sf)
+    else:
+        prob.model.add_constraint("sigma_vm", upper=1.0/sf)
 
     prob.setup()
     om.n2(prob, show_browser=False, outfile='struc_opt_w_splines.html')
 
     return x, prob, Np, Tp
 
-def run_optimization(use_splines=False, optimizer='SNOPT', use_ks=True):
+def run_optimization(use_splines=False, optimizer='SNOPT', use_ks=True, sf=3.0):
     # Run the structural optimization problem and plot the outputs
 
     if use_splines:
-        xe, p, Np, Tp = get_problem_w_splines(optimizer=optimizer)
+        xe, p, Np, Tp = get_problem_w_splines(optimizer=optimizer, use_ks=use_ks, sf=sf)
     else:
-        xe, p, Np, Tp = get_problem(optimizer=optimizer, use_ks=use_ks)
+        xe, p, Np, Tp = get_problem(optimizer=optimizer, use_ks=use_ks, sf=sf)
     p.run_driver()
 
     print("mass = ", p.get_val("m", units="kg"))
@@ -216,11 +221,17 @@ def run_optimization(use_splines=False, optimizer='SNOPT', use_ks=True):
 
     # Save the chord and twist distribution to a csv
     if use_splines:
-        fname = "chord_theta_{0}_w_splines.csv".format(optimizer)
+        if use_ks:
+            fname = "chord_theta_{0}_w_splines.csv".format(optimizer)
+        else:
+            fname = "chord_theta_{0}_w_splines_no_ks.csv".format(optimizer)
         chord = p.get_val("chord", units="inch")[0]
         theta = p.get_val("theta", units="deg")[0]
     else:
-        fname = "chord_theta_{0}.csv".format(optimizer)
+        if use_ks:
+            fname = "chord_theta_{0}.csv".format(optimizer)
+        else:
+            fname = "chord_theta_{0}_no_ks.csv".format(optimizer)
         chord = p.get_val("chord", units="inch")
         theta = p.get_val("theta", units="deg")
     df = pd.DataFrame({"chord":chord, "theta":theta})
@@ -297,9 +308,9 @@ def get_1d_problem(chord_val=None, theta_val=None, optimizer="SNOPT"):
     rpm = 7110.0
     omega = rpm*2*np.pi/60
 
-    # Set dummy loads
-    Np = np.zeros(nelems)
-    Tp = np.zeros(nelems)
+    # # Set dummy loads
+    # Np = np.zeros(nelems)
+    # Tp = np.zeros(nelems)
 
     prob = om.Problem()
 
@@ -464,7 +475,8 @@ def check_theta_opt_val():
     h2, l2 = ax2.get_legend_handles_labels()
     ax2.legend([h1[0]]+h2, [l1[0]]+l2)
 
-    plt.savefig("theta_opt_sweep.pdf")
+    #plt.savefig("theta_opt_sweep.pdf")
+    plt.show()
 
     return
 
@@ -682,7 +694,9 @@ if __name__ == "__main__":
 
     #check_theta_opt_val()
     #check_chord_opt_val()
-    # _, p, _, _ = get_1d_problem(chord_val=1.0)
+    # x, p, Np, Tp = get_1d_problem(theta_val=12.0*np.pi/180.0)
+    # p.run_model()
+    # plot_extras(p, x, Tp, Np)
     # p.run_driver()
     # print("chord = ", p.get_val("chord_val"))
     # print("theta = ", p.get_val("theta_val"))
@@ -693,4 +707,4 @@ if __name__ == "__main__":
     # xe, p, Np, Tp = get_1d_problem()
     # p.run_model()
 
-    run_optimization(use_splines=False, optimizer="SNOPT", use_ks=False)
+    run_optimization(use_splines=True, optimizer="SNOPT", use_ks=False, sf=4.0)

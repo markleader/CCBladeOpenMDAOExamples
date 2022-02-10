@@ -31,7 +31,7 @@ def get_problem():
     pitch = 0.0
 
     # Lower and upper limits on the chord design variable, in meters.
-    chord_lower = 1.0*0.0254
+    chord_lower = 0.5*0.0254
     chord_upper = 5.0*0.0254
 
     # Lower and upper limits on the twist design variable, radians.
@@ -100,17 +100,38 @@ if __name__ == "__main__":
     p.run_driver()
 
     radii_cp = p.get_val("radii_cp", units="inch")
-    radii = p.get_val("radii", units="inch")
+    radii = p.get_val("radii", units="inch")[0]
     chord_cp = p.get_val("chord_cp", units="inch")
-    chord = p.get_val("chord", units="inch")
+    chord = p.get_val("chord", units="inch")[0]
     theta_cp = p.get_val("theta_cp", units="deg")
-    theta = p.get_val("theta", units="deg")
+    theta = p.get_val("theta", units="deg")[0]
 
-    cmap = plt.get_cmap("tab10")
-    fig, (ax0, ax1) = plt.subplots(nrows=2, sharex=True)
-    ax0.plot(radii_cp, chord_cp, color=cmap(0), marker="o")
-    ax0.plot(radii, chord, color=cmap(0))
-    ax0.set_ylim(0.0, 5.0)
-    ax1.plot(radii_cp, theta_cp, color=cmap(0), marker="o")
-    ax1.plot(radii, theta, color=cmap(0))
-    fig.savefig("chord_theta.png")
+    # cmap = plt.get_cmap("tab10")
+    # fig, (ax0, ax1) = plt.subplots(nrows=2, sharex=True)
+    # ax0.plot(radii_cp, chord_cp, color=cmap(0), marker="o")
+    # ax0.plot(radii, chord, color=cmap(0))
+    # ax0.set_ylim(0.0, 5.0)
+    # ax1.plot(radii_cp, theta_cp, color=cmap(0), marker="o")
+    # ax1.plot(radii, theta, color=cmap(0))
+    # fig.savefig("chord_theta.png")
+
+    fig, (ax0, ax1) = plt.subplots(nrows=2, sharex=True, constrained_layout=True)
+    ax0.plot(radii, chord, color="C0")
+    ax1.plot(radii, theta, color="C0")
+
+    ax0.spines["right"].set_visible(False)
+    ax0.spines["top"].set_visible(False)
+    ax0.spines["bottom"].set_visible(False)
+    ax0.tick_params(axis="x", direction="out", length=0.0, width=0.0)
+    ax0.yaxis.set_ticks_position("left")
+    ax0.xaxis.set_ticks_position("bottom")
+    ax1.spines["right"].set_visible(False)
+    ax1.spines["top"].set_visible(False)
+    ax0.grid(True)
+    ax1.grid(True)
+
+    ax0.set_ylabel("Chord (in)")
+    ax1.set_xlabel(r"$x$ (in)")
+    ax1.set_ylabel("Twist (deg.)")
+
+    plt.savefig("chord_theta_aero.pdf", transparent=False)

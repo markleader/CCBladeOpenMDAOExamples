@@ -117,9 +117,10 @@ function SolverComp(; rho, E, nu, Rhub, span, nelems)
         Iyy = x[:Iyy]
         Izz = x[:Izz]
         Iyz = x[:Iyz]
+        #println(Iyy)
 
         xpts = zeros(T, nelems+1)
-        xvals = collect(range(self.Rhub, self.span, length=nelems+1))
+        xvals = collect(range(Rhub, span, length=nelems+1))
         for i = 1:(nelems+1)
             xpts[i] = xvals[i]
         end
@@ -181,9 +182,9 @@ function OpenMDAO.setup(self::SolverComp)
 
     # Declare the OpenMDAO outputs.
     output_data = Vector{VarData}()
-    push!(output_data, VarData("Fx", shape=shape=nelems, units="N"))
-    push!(output_data, VarData("My", shape=shape=nelems, units="N*m"))
-    push!(output_data, VarData("Mz", shape=shape=nelems, units="N*m"))
+    push!(output_data, VarData("Fx", shape=nelems, units="N"))
+    push!(output_data, VarData("My", shape=nelems, units="N*m"))
+    push!(output_data, VarData("Mz", shape=nelems, units="N*m"))
 
     # Declare the OpenMDAO partial derivatives.
     partials_data = Vector{PartialsData}()
@@ -216,6 +217,8 @@ end
 
 function OpenMDAO.compute!(self::SolverComp, inputs, outputs)
 
+    nelems = self.nelems
+
     # Unpack the inputs.
     omega = inputs["omega"][1]
     Np = inputs["Np"]
@@ -232,9 +235,6 @@ function OpenMDAO.compute!(self::SolverComp, inputs, outputs)
     My = outputs["My"]
     Mz = outputs["Mz"]
 
-    println(Np)
-    println()
-
     T = eltype(omega)
 
     E = self.E
@@ -248,7 +248,7 @@ function OpenMDAO.compute!(self::SolverComp, inputs, outputs)
     end
     ypts = zero(xpts)
     zpts = zero(xpts)
-    points = [[xpts[i], ypts[i], zpts[i]] for i = 1:(self.nelems+1)]
+    points = [[xpts[i], ypts[i], zpts[i]] for i = 1:(nelems+1)]
 
     assembly, system = create_assembly(points=points, omega=omega,
                                        Tp=Tp, Np=Np, chord=chord, theta=theta,
