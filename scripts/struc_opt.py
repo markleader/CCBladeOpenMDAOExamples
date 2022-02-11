@@ -200,7 +200,7 @@ def get_problem_w_splines(optimizer="SNOPT", use_ks=True, sf=3.0):
     else:
         prob.model.add_constraint("sigma_vm", upper=1.0/sf)
 
-    prob.setup()
+    prob.setup(check=True)
     om.n2(prob, show_browser=False, outfile='struc_opt_w_splines.html')
 
     return x, prob, Np, Tp

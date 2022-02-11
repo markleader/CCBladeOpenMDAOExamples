@@ -10,7 +10,7 @@ from ccblade_openmdao_examples.ccblade_openmdao_component import BEMTRotorCAComp
 from ccblade_openmdao_examples.structural_group import StructuralGroup
 
 
-def get_problem():
+def get_problem(use_ks=True, sf=4.0):
 
     B = 3  # Number of blades.
     D = 24.0*0.0254  # Diameter in inches.
@@ -95,10 +95,11 @@ def get_problem():
                              promotes_outputs=["sigma_vm", "m"])
 
     # Aggregate the stress
-    prob.model.add_subsystem("ks", om.KSComp(width=nelems*num_stress_eval_points*2,
-                                             add_constraint=False, ref=1.0,
-                                             units=None))
-    prob.model.connect("sigma_vm", "ks.g")
+    if use_ks:
+        prob.model.add_subsystem("ks", om.KSComp(width=nelems*num_stress_eval_points*2,
+                                                add_constraint=False, ref=1.0,
+                                                units=None))
+        prob.model.connect("sigma_vm", "ks.g")
 
     # Set the optimizer
     prob.model.linear_solver = om.DirectSolver()
@@ -110,25 +111,27 @@ def get_problem():
 
     prob.model.add_objective("efficiency", ref=-1e0)
     prob.model.add_constraint("thrust", lower=thrust_target, upper=thrust_target, units="N", ref=1e2)
-    prob.model.add_constraint("ks.KS", upper=1.0)
+
+    if use_ks:
+        prob.model.add_constraint("ks.KS", upper=1.0/sf)
+    else:
+        prob.model.add_constraint("sigma_vm", upper=1.0/sf)
 
     prob.setup(check=True)
-    #prob.run_model()
     om.n2(prob, show_browser=False, outfile='struc_aero_opt.html')
-    prob.summary()
-    #prob.driver.scaling_report()
 
     return prob
 
-def run_optimization():
+def run_optimization(use_ks=True, sf=4.0):
     # Run the coupled aero-structural optimization problem and plot the outputs
 
-    p = get_problem()
+    p = get_problem(use_ks=use_ks, sf=sf)
     p.run_driver()
 
     xe = p.get_val("radii", units="inch")[0]
     print("mass = ", p.get_val("m", units="kg"))
-    print("KS(sigma)/sigma_y = ", p.get_val("ks.KS"))
+    if use_ks:
+        print("KS(sigma)/sigma_y = ", p.get_val("ks.KS"))
     print("max(sigma) = ", np.amax(p.get_val("sigma_vm")))
 
     # Save the chord and twist distribution to a csv
@@ -259,4 +262,4 @@ def plot_extras(p, xe, Tp, Np):
 
 if __name__ == "__main__":
 
-    run_optimization()
+    run_optimization(use_ks=False, sf=3.0)
