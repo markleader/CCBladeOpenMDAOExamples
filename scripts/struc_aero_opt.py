@@ -10,7 +10,7 @@ from ccblade_openmdao_examples.ccblade_openmdao_component import BEMTRotorCAComp
 from ccblade_openmdao_examples.structural_group import StructuralGroup
 
 
-def get_problem(use_ks=True, sf=4.0):
+def get_problem(use_ks=True, sf=4.0, use_stress_constraint=True):
 
     B = 3  # Number of blades.
     D = 24.0*0.0254  # Diameter in inches.
@@ -95,7 +95,7 @@ def get_problem(use_ks=True, sf=4.0):
                              promotes_outputs=["sigma_vm", "m"])
 
     # Aggregate the stress
-    if use_ks:
+    if use_ks and use_stress_constraint:
         prob.model.add_subsystem("ks", om.KSComp(width=nelems*num_stress_eval_points*2,
                                                 add_constraint=False, ref=1.0,
                                                 units=None))
@@ -112,20 +112,29 @@ def get_problem(use_ks=True, sf=4.0):
     prob.model.add_objective("efficiency", ref=-1e0)
     prob.model.add_constraint("thrust", lower=thrust_target, upper=thrust_target, units="N", ref=1e2)
 
-    if use_ks:
-        prob.model.add_constraint("ks.KS", upper=1.0/sf)
-    else:
-        prob.model.add_constraint("sigma_vm", upper=1.0/sf)
+    if use_stress_constraint:
+        if use_ks:
+            prob.model.add_constraint("ks.KS", upper=1.0/sf)
+        else:
+            prob.model.add_constraint("sigma_vm", upper=1.0/sf)
 
     prob.setup(check=True)
     om.n2(prob, show_browser=False, outfile='struc_aero_opt.html')
 
+    del(ivc)
+    del(comp)
+    del(struc_group)
+
     return prob
 
-def run_optimization(use_ks=True, sf=4.0):
+def run_optimization(use_ks=True, sf=4.0, use_stress_constraint=True):
     # Run the coupled aero-structural optimization problem and plot the outputs
 
-    p = get_problem(use_ks=use_ks, sf=sf)
+    dv_fname = "coupled_chord_theta_sf_{0:.1f}.csv".format(sf)
+    force_fname = "coupled_aero_forces_sf_{0:.1f}.csv".format(sf)
+    stress_fname = "coupled_stress_sf_{0:.1f}.csv".format(sf)
+
+    p = get_problem(use_ks=use_ks, sf=sf, use_stress_constraint=use_stress_constraint)
     p.run_driver()
 
     xe = p.get_val("radii", units="inch")[0]
@@ -133,23 +142,34 @@ def run_optimization(use_ks=True, sf=4.0):
     if use_ks:
         print("KS(sigma)/sigma_y = ", p.get_val("ks.KS"))
     print("max(sigma) = ", np.amax(p.get_val("sigma_vm")))
+    print("efficiency = ", p.get_val("efficiency"))
 
     # Save the chord and twist distribution to a csv
     chord = p.get_val("chord", units="inch")[0]
     theta = p.get_val("theta", units="deg")[0]
     df = pd.DataFrame({"chord":chord, "theta":theta})
-    df.to_csv("chord_theta.csv", index=False)
+    df.to_csv(dv_fname, index=False)
 
     # Plot the chord and twist distribution
     plot_chord_theta(xe, chord, theta)
 
     # Plot the other values of interest
-    Tp = p.get_val("Tp")
-    Np = p.get_val("Np")
+    Tp = p.get_val("Tp")[0]
+    Np = p.get_val("Np")[0]
     plot_extras(p, xe, Tp, Np)
+    df = pd.DataFrame({"Np":Np, "Tp":Tp})
+    df.to_csv(force_fname, index=False)
+
+    # Write out the element-wise max stress to a csv file
+    sigma1 = p.get_val("sigma_vm")
+    sigma_x1 = np.zeros(len(xe))
+    num_stress_eval_points = 20
+    for i in range(len(xe)):
+        sigma_x1[i] = np.amax(sigma1[2*i*num_stress_eval_points:2*(i+1)*num_stress_eval_points])
+    df = pd.DataFrame({"sigma":sigma_x1})
+    df.to_csv(stress_fname, index=False)
 
     return
-
 
 def plot_chord_theta(xe, chord, theta):
 
@@ -260,6 +280,50 @@ def plot_extras(p, xe, Tp, Np):
 
     return
 
+def run_pareto_front():
+
+    sf_vals = np.linspace(0.0, 4.0, 4)
+    obj_vals = np.zeros(len(sf_vals))
+
+    for i, sf in enumerate(sf_vals):
+        print("Safety factor = {0}".format(sf))
+
+        if sf > 0.0:
+            p = get_problem(use_ks=False, sf=sf, use_stress_constraint=True)
+        else:
+            p = get_problem(use_ks=False, sf=sf, use_stress_constraint=False)
+
+        p.run_driver()
+        print()
+        print()
+        print()
+        print()
+        print(p.get_val("efficiency")[0])
+        print()
+        print()
+        print()
+        print()
+        obj_vals[i] = p.get_val("efficiency")[0]
+        del(p)
+
+    fig = plt.figure(figsize=(8,4), constrained_layout=True)
+    ax = plt.subplot()
+    ax.scatter(sf_vals, obj_vals)
+
+    ax.spines['right'].set_visible(False)
+    ax.spines['top'].set_visible(False)
+    ax.yaxis.set_ticks_position('left')
+    ax.xaxis.set_ticks_position('bottom')
+    ax.grid(True)
+
+    ax.set_ylabel("Efficiency")
+    ax.set_xlabel("Safety factor")
+
+    plt.savefig("pareto.pdf", transparent=False)
+
+    return
+
 if __name__ == "__main__":
 
-    run_optimization(use_ks=False, sf=3.0)
+    #run_optimization(use_ks=False, sf=1.0)
+    run_pareto_front()
