@@ -97,6 +97,41 @@ function create_assembly(; points, Tp, Np, omega, chord, theta, A, Iyy, Izz, Iyz
     return assembly, system
 end
 
+function output_only(chord, theta; fname="prop")
+
+    nelems = length(chord)
+    theta = theta*(pi/180.0)
+
+    # Define the element spacing
+    span = 12.0
+    Rhub = 0.2*span
+    xpts = collect(range(Rhub, span, length=nelems+1))
+    ypts = zero(xpts)
+    zpts = zero(xpts)
+    points = [[xpts[i], ypts[i], zpts[i]] for i = 1:nelems+1]
+
+    start = 1:nelems
+    stop = 2:nelems+1
+
+    compliance = fill(Diagonal([0, 0, 0, 1.0, 1.0, 0]), nelems)
+
+    # create assembly
+    assembly = Assembly(points, start, stop, compliance=compliance)
+
+    bcs = Dict(
+        1 => PrescribedConditions(ux=0, uy=0, uz=0, theta_x=0, theta_y=0, theta_z=0)
+    )
+
+    system, converged = static_analysis(assembly;
+        prescribed_conditions=bcs,
+        linear=true)
+    state = AssemblyState(system, assembly; prescribed_conditions=bcs)
+
+    write_output(assembly, state; points=points, chord=chord, theta=theta, fname=fname, scaling=0.0)
+
+    return
+end
+
 function run_analysis(;linear=true, chord=nothing, theta=nothing, fname="prop")
 
     # Compute the aerodynamic forces and set up the element discretization
@@ -168,14 +203,14 @@ function run_analysis(;linear=true, chord=nothing, theta=nothing, fname="prop")
     My = [state.elements[ielem].M[2] for ielem = 1:length(assembly.elements)]
     Mz = [state.elements[ielem].M[3] for ielem = 1:length(assembly.elements)]
 
-    print(maximum(My))
+    #print(maximum(My))
 
     write_output(assembly, state; points=points, chord=chord, theta=theta, fname=fname)
 
     return
 end
 
-function write_output(assembly, state; points, chord, theta, fname="prop")
+function write_output(assembly, state; points, chord, theta, fname="prop", scaling=5.0)
     # Create a vtk file output from the GXBeam analysis
 
     num_airfoil_eval_pts = 30
@@ -224,16 +259,18 @@ function write_output(assembly, state; points, chord, theta, fname="prop")
     end
 
     # Write out the vtk file
-    write_vtk(fname, assembly, state; sections=sections, scaling=5.0)
+    write_vtk(fname, assembly, state; sections=sections, scaling=scaling)
     #write_vtk(fname, assembly, state; scaling=1.0)
 
     return nothing
 end
 
 # Get saved design values to pass in to the analysis
-csv_name = "chord_theta.csv"
+#csv_name = "chord_theta_SNOPT_w_splines_no_ks_sf_4.0.csv"
+csv_name = "coupled_chord_theta_sf_0.0.csv"
 df = DataFrame(CSV.File(csv_name))
 chord = df[:, :chord]
 theta = df[:, :theta]
 
-run_analysis(linear=true)#; fname="only_normal_forces")
+output_only(chord, theta; fname="coupled_chord_theta_sf_0")
+#run_analysis(linear=true, chord=chord, theta=theta, fname="aero_opt")

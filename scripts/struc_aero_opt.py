@@ -10,7 +10,7 @@ from ccblade_openmdao_examples.ccblade_openmdao_component import BEMTRotorCAComp
 from ccblade_openmdao_examples.structural_group import StructuralGroup
 
 
-def get_problem(use_ks=True, sf=4.0, use_stress_constraint=True):
+def get_problem(use_ks=True, sf=4.0, use_theta_dv=True, use_omega_dv=False):
 
     B = 3  # Number of blades.
     D = 24.0*0.0254  # Diameter in inches.
@@ -36,7 +36,7 @@ def get_problem(use_ks=True, sf=4.0, use_stress_constraint=True):
     pitch = 0.0
 
     # Lower and upper limits on the chord design variable, inches.
-    chord_lower = 0.5*0.0254
+    chord_lower = 0.1*0.0254
     chord_upper = 5.0*0.0254
 
     # Lower and upper limits on the twist design variable, radians.
@@ -46,8 +46,12 @@ def get_problem(use_ks=True, sf=4.0, use_stress_constraint=True):
     # Target thrust value in Newtons.
     thrust_target = 97.246
 
+    # Lower and upper limits on omega, rad/sec.
+    omega_lower = 0.0
+    omega_upper = speedofsound/Rtip
+
     # Get the initial blade geometry.
-    num_cp = 8
+    num_cp = 12
     radii_cp0 = np.linspace(Rhub, Rtip, num_cp)
     chord_cp0 = c*np.ones(num_cp)
     theta_cp0 = np.arctan(P/(np.pi*D*radii_cp0/Rtip))
@@ -68,7 +72,10 @@ def get_problem(use_ks=True, sf=4.0, use_stress_constraint=True):
     ivc.add_output("v", val=v, shape=num_operating_points, units="m/s")
     ivc.add_output("omega", val=omega, shape=num_operating_points, units="rad/s")
     ivc.add_output("pitch", val=pitch, shape=num_operating_points, units="rad")
+    ivc.add_output("collective", val=0.0, units="rad")
     prob.model.add_subsystem("ivc", ivc, promotes_outputs=["*"])
+
+    prob.model.add_subsystem("exec_comp", om.ExecComp("total_theta_cp=theta_cp+collective", total_theta_cp=theta_cp0, theta_cp=theta_cp0, collective=0.0), promotes=["*"])
 
     x_cp = np.linspace(0.0, 1.0, num_cp)
     x_interp = cell_centered(nelems, 0.0, 1.0)
@@ -76,9 +83,9 @@ def get_problem(use_ks=True, sf=4.0, use_stress_constraint=True):
     comp = om.SplineComp(method="akima", interp_options=interp_options, x_cp_val=x_cp, x_interp_val=x_interp)
     comp.add_spline(y_cp_name="radii_cp", y_interp_name="radii", y_units="m")
     comp.add_spline(y_cp_name="chord_cp", y_interp_name="chord", y_units="m")
-    comp.add_spline(y_cp_name="theta_cp", y_interp_name="theta", y_units="rad")
+    comp.add_spline(y_cp_name="total_theta_cp", y_interp_name="theta", y_units="rad")
     prob.model.add_subsystem("akima_comp", comp,
-                             promotes_inputs=["radii_cp", "chord_cp", "theta_cp"],
+                             promotes_inputs=["radii_cp", "chord_cp", "total_theta_cp"],
                              promotes_outputs=["radii", "chord", "theta"])
 
     af_fname = "../data/xf-n0012-il-500000.dat"
@@ -95,7 +102,7 @@ def get_problem(use_ks=True, sf=4.0, use_stress_constraint=True):
                              promotes_outputs=["sigma_vm", "m"])
 
     # Aggregate the stress
-    if use_ks and use_stress_constraint:
+    if use_ks and sf > 0.0:
         prob.model.add_subsystem("ks", om.KSComp(width=nelems*num_stress_eval_points*2,
                                                 add_constraint=False, ref=1.0,
                                                 units=None))
@@ -107,12 +114,19 @@ def get_problem(use_ks=True, sf=4.0, use_stress_constraint=True):
 
     # Define the optimization problem
     prob.model.add_design_var("chord_cp", lower=chord_lower, upper=chord_upper, ref=1e-2)
-    prob.model.add_design_var("theta_cp", lower=theta_lower, upper=theta_upper, ref=1e0)
+
+    if use_theta_dv:
+        prob.model.add_design_var("theta_cp", lower=theta_lower, upper=theta_upper, ref=1e0)
+    else:
+        prob.model.add_design_var("collective", lower=theta_lower-np.amin(theta_cp0), upper=theta_upper-np.amax(theta_cp0), ref=1e0)
+
+    if use_omega_dv:
+        prob.model.add_design_var("omega", lower=omega_lower, upper=omega_upper, ref=omega)
 
     prob.model.add_objective("efficiency", ref=-1e0)
     prob.model.add_constraint("thrust", lower=thrust_target, upper=thrust_target, units="N", ref=1e2)
 
-    if use_stress_constraint:
+    if sf > 0.0:
         if use_ks:
             prob.model.add_constraint("ks.KS", upper=1.0/sf)
         else:
@@ -121,20 +135,29 @@ def get_problem(use_ks=True, sf=4.0, use_stress_constraint=True):
     prob.setup(check=True)
     om.n2(prob, show_browser=False, outfile='struc_aero_opt.html')
 
-    del(ivc)
-    del(comp)
-    del(struc_group)
-
     return prob
 
-def run_optimization(use_ks=True, sf=4.0, use_stress_constraint=True):
+def run_optimization(use_ks=False, sf=4.0, use_theta_dv=True, use_omega_dv=False):
     # Run the coupled aero-structural optimization problem and plot the outputs
 
-    dv_fname = "coupled_chord_theta_sf_{0:.1f}.csv".format(sf)
-    force_fname = "coupled_aero_forces_sf_{0:.1f}.csv".format(sf)
-    stress_fname = "coupled_stress_sf_{0:.1f}.csv".format(sf)
+    if use_omega_dv and use_theta_dv:
+        dv_fname = "dvs_using_theta_omega_sf_{0:.1f}.csv".format(sf)
+        force_fname = "aero_forces_using_theta_omega_sf_{0:.1f}.csv".format(sf)
+        stress_fname = "stress_using_theta_omega_sf_{0:.1f}.csv".format(sf)
+    elif use_omega_dv:
+        dv_fname = "dvs_using_omega_sf_{0:.1f}.csv".format(sf)
+        force_fname = "aero_forces_using_omega_sf_{0:.1f}.csv".format(sf)
+        stress_fname = "stress_using_omega_sf_{0:.1f}.csv".format(sf)
+    elif use_theta_dv:
+        dv_fname = "dvs_using_theta_sf_{0:.1f}.csv".format(sf)
+        force_fname = "aero_forces_using_theta_sf_{0:.1f}.csv".format(sf)
+        stress_fname = "stress_using_theta_sf_{0:.1f}.csv".format(sf)
+    else:
+        dv_fname = "dvs_using_chord_sf_{0:.1f}.csv".format(sf)
+        force_fname = "aero_forces_using_chord_sf_{0:.1f}.csv".format(sf)
+        stress_fname = "stress_using_chord_sf_{0:.1f}.csv".format(sf)
 
-    p = get_problem(use_ks=use_ks, sf=sf, use_stress_constraint=use_stress_constraint)
+    p = get_problem(use_ks=use_ks, sf=sf, use_theta_dv=use_theta_dv, use_omega_dv=use_omega_dv)
     p.run_driver()
 
     xe = p.get_val("radii", units="inch")[0]
@@ -143,6 +166,8 @@ def run_optimization(use_ks=True, sf=4.0, use_stress_constraint=True):
         print("KS(sigma)/sigma_y = ", p.get_val("ks.KS"))
     print("max(sigma) = ", np.amax(p.get_val("sigma_vm")))
     print("efficiency = ", p.get_val("efficiency"))
+    print("omega = ", p.get_val("omega"))
+    print("collective = ", p.get_val("collective")[0]*(180.0/np.pi))
 
     # Save the chord and twist distribution to a csv
     chord = p.get_val("chord", units="inch")[0]
@@ -280,50 +305,6 @@ def plot_extras(p, xe, Tp, Np):
 
     return
 
-def run_pareto_front():
-
-    sf_vals = np.linspace(0.0, 4.0, 4)
-    obj_vals = np.zeros(len(sf_vals))
-
-    for i, sf in enumerate(sf_vals):
-        print("Safety factor = {0}".format(sf))
-
-        if sf > 0.0:
-            p = get_problem(use_ks=False, sf=sf, use_stress_constraint=True)
-        else:
-            p = get_problem(use_ks=False, sf=sf, use_stress_constraint=False)
-
-        p.run_driver()
-        print()
-        print()
-        print()
-        print()
-        print(p.get_val("efficiency")[0])
-        print()
-        print()
-        print()
-        print()
-        obj_vals[i] = p.get_val("efficiency")[0]
-        del(p)
-
-    fig = plt.figure(figsize=(8,4), constrained_layout=True)
-    ax = plt.subplot()
-    ax.scatter(sf_vals, obj_vals)
-
-    ax.spines['right'].set_visible(False)
-    ax.spines['top'].set_visible(False)
-    ax.yaxis.set_ticks_position('left')
-    ax.xaxis.set_ticks_position('bottom')
-    ax.grid(True)
-
-    ax.set_ylabel("Efficiency")
-    ax.set_xlabel("Safety factor")
-
-    plt.savefig("pareto.pdf", transparent=False)
-
-    return
-
 if __name__ == "__main__":
 
-    #run_optimization(use_ks=False, sf=1.0)
-    run_pareto_front()
+    run_optimization(use_ks=False, sf=4.0, use_theta_dv=True, use_omega_dv=True)
