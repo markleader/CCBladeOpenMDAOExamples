@@ -140,7 +140,6 @@ include("spline_component.jl")
 ncp = 5
 nelems = 20
 r_cp = collect(range(2.0, 12.0, length=ncp))
-r = collect(range(2.0, 12.0, length=nelems))
 chord_cp = [1.5, 1.4, 1.3, 1.0, 0.2]#collect(range(1.5, 0.5, length=ncp))
 theta_cp = [0.5, 0.4, 0.1, 0.1, 0.0]#collect(range(40.0*pi/180.0, 10.0*pi/180.0, length=ncp))
 
@@ -149,7 +148,6 @@ ivc = om.IndepVarComp()
 ivc.add_output("chord_cp", chord_cp, units="inch")
 ivc.add_output("theta_cp", theta_cp, units="rad")
 ivc.add_output("r_cp", r_cp, units="inch")
-ivc.add_output("r", r, units="inch")
 
 spline_comp = make_component(DiffBSplineComp(nelems=nelems, ncp=ncp))
 prob.model.add_subsystem("spline_comp", spline_comp, promotes=["*"])

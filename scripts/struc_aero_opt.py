@@ -78,19 +78,19 @@ def get_problem(sf=1.0, use_curvature_constraint=False, use_theta_dv=True, use_o
 
     prob.model.add_subsystem("exec_comp", om.ExecComp("total_theta_cp=theta_cp+collective", total_theta_cp=theta_cp0, theta_cp=theta_cp0, collective=0.0, units="rad"), promotes=["*"])
 
-    x_cp = np.linspace(0.0, 1.0, num_cp)
-    x_interp = cell_centered(nelems, 0.0, 1.0)
-    interp_options = {"delta_x": 0.1}
-    comp = om.SplineComp(method="akima", interp_options=interp_options, x_cp_val=x_cp, x_interp_val=x_interp)
-    comp.add_spline(y_cp_name="radii_cp", y_interp_name="radii", y_units="m")
-    prob.model.add_subsystem("akima_comp", comp,
-                             promotes_inputs=["radii_cp"],
-                             promotes_outputs=["radii"])
+    # x_cp = np.linspace(0.0, 1.0, num_cp)
+    # x_interp = cell_centered(nelems, 0.0, 1.0)
+    # interp_options = {"delta_x": 0.1}
+    # comp = om.SplineComp(method="akima", interp_options=interp_options, x_cp_val=x_cp, x_interp_val=x_interp)
+    # comp.add_spline(y_cp_name="radii_cp", y_interp_name="radii", y_units="m")
+    # prob.model.add_subsystem("akima_comp", comp,
+    #                          promotes_inputs=["radii_cp"],
+    #                          promotes_outputs=["radii"])
 
     spline_comp = make_component(DiffBSplineComp(ncp=num_cp, nelems=nelems))
     prob.model.add_subsystem("spline_comp", spline_comp,
-                             promotes_inputs=["radii_cp", "chord_cp", "radii"],
-                             promotes_outputs=["chord", "theta", "d2c_dr2", "d2t_dr2"])
+                             promotes_inputs=["radii_cp", "chord_cp"],
+                             promotes_outputs=["radii", "chord", "theta", "d2c_dr2", "d2t_dr2"])
     prob.model.connect("total_theta_cp", "spline_comp.theta_cp")
 
     af_fname = "../data/xf-n0012-il-500000.dat"
@@ -109,6 +109,8 @@ def get_problem(sf=1.0, use_curvature_constraint=False, use_theta_dv=True, use_o
     # Set the optimizer
     prob.model.linear_solver = om.DirectSolver()
     prob.driver = om.pyOptSparseDriver(optimizer="SNOPT")
+    # prob.driver = om.ScipyOptimizeDriver(debug_print=["objs", "nl_cons"], maxiter=200)
+    # prob.driver.options["optimizer"] = "SLSQP"
 
     # Define the optimization problem
     prob.model.add_design_var("chord_cp", lower=chord_lower, upper=chord_upper, ref=1e-2)
@@ -129,7 +131,7 @@ def get_problem(sf=1.0, use_curvature_constraint=False, use_theta_dv=True, use_o
 
     if use_curvature_constraint:
         prob.model.add_constraint("d2c_dr2", upper=0.0)
-        #prob.model.add_constraint("d2t_dr2", lower=0.0)
+        prob.model.add_constraint("d2t_dr2", lower=0.0)
 
     prob.setup(check=True)
     om.n2(prob, show_browser=False, outfile='struc_aero_opt.html')
@@ -159,7 +161,7 @@ def run_optimization(sf=1.0, use_curvature_constraint=False, use_theta_dv=True, 
     p = get_problem(sf=sf, use_curvature_constraint=use_curvature_constraint, use_theta_dv=use_theta_dv, use_omega_dv=use_omega_dv)
     p.run_driver()
 
-    xe = p.get_val("radii", units="inch")[0]
+    xe = p.get_val("radii", units="inch")
     print("mass = ", p.get_val("m", units="kg"))
     print("max(sigma) = ", np.amax(p.get_val("sigma_vm")))
     print("efficiency = ", p.get_val("efficiency"))
@@ -304,4 +306,4 @@ def plot_extras(p, xe, Tp, Np):
 
 if __name__ == "__main__":
 
-    run_optimization(sf=1.0, use_curvature_constraint=False, use_theta_dv=True, use_omega_dv=False)
+    run_optimization(sf=1.0, use_curvature_constraint=True, use_theta_dv=True, use_omega_dv=False)
