@@ -22,9 +22,9 @@ prob.model.add_subsystem("ivc", ivc, promotes=["*"])
 area_comp = make_component(AreaComp(nelems=nelems, A_ref=A_ref, Iyy_ref=Iyy_ref, Izz_ref=Izz_ref, zrel_cm=zrel_cm, zrel_rot=zrel_rot))
 prob.model.add_subsystem("area_comp", area_comp, promotes=["*"])
 
-prob.setup(force_alloc_complex=true)
-prob.run_model()
-prob.check_partials(compact_print=true, method="cs")
+# prob.setup(force_alloc_complex=true)
+# prob.run_model()
+# prob.check_partials(compact_print=true, method="cs")
 
 include("stress_component.jl")
 
@@ -53,9 +53,9 @@ prob.model.add_subsystem("ivc", ivc, promotes=["*"])
 stress_comp = make_component(StressComp(nelems=nelems, num_stress_eval_points=50, ys=345e6, zrel_rot=zrel_rot))
 prob.model.add_subsystem("stress_comp", stress_comp, promotes=["*"])
 
-prob.setup(force_alloc_complex=true)
-prob.run_model()
-prob.check_partials(compact_print=true, method="cs")
+# prob.setup(force_alloc_complex=true)
+# prob.run_model()
+# prob.check_partials(compact_print=true, method="cs")
 
 include("gxbeam_component.jl")
 
@@ -96,9 +96,9 @@ prob.model.add_subsystem("ivc", ivc, promotes=["*"])
 solver_comp = make_component(SolverComp(rho=2780.0, E=72.4e9, nu=0.33, Rhub=Rhub, span=span, nelems=nelems))
 prob.model.add_subsystem("solver_comp", solver_comp, promotes=["*"])
 
-prob.setup(force_alloc_complex=true)
-prob.run_model()
-prob.check_partials(compact_print=true, method="cs")
+# prob.setup(force_alloc_complex=true)
+# prob.run_model()
+# prob.check_partials(compact_print=true, method="cs")
 # prob.setup()
 # prob.run_model()
 # prob.check_partials(compact_print=true)
@@ -112,9 +112,9 @@ ivc.add_output("A", A, units="m**2")
 solver_comp = make_component(MassComp(rho=2600.0, span=span, nelems=nelems))
 prob.model.add_subsystem("mass_comp", solver_comp, promotes=["*"])
 
-prob.setup(force_alloc_complex=true)
-prob.run_model()
-prob.check_partials(compact_print=true, method="cs")
+# prob.setup(force_alloc_complex=true)
+# prob.run_model()
+# prob.check_partials(compact_print=true, method="cs")
 
 include("von_mises_component.jl")
 
@@ -128,6 +128,32 @@ ivc.add_output("sigma1", sigma1)
 vm_comp = make_component(VonMisesComp(nelems=nelems, num_stress_eval_points=num_stress_eval_points, k0=0.01))
 prob.model.add_subsystem("vm_comp", vm_comp, promotes=["*"])
 
-prob.setup(force_alloc_complex=true)
+# prob.setup(force_alloc_complex=true)
+# prob.run_model()
+# prob.check_partials(compact_print=true, method="cs")
+
+
+
+
+include("spline_component.jl")
+
+ncp = 5
+nelems = 20
+r_cp = collect(range(2.0, 12.0, length=ncp))
+r = collect(range(2.0, 12.0, length=nelems))
+chord_cp = [1.5, 1.4, 1.3, 1.0, 0.2]#collect(range(1.5, 0.5, length=ncp))
+theta_cp = [0.5, 0.4, 0.1, 0.1, 0.0]#collect(range(40.0*pi/180.0, 10.0*pi/180.0, length=ncp))
+
+prob = om.Problem()
+ivc = om.IndepVarComp()
+ivc.add_output("chord_cp", chord_cp, units="inch")
+ivc.add_output("theta_cp", theta_cp, units="rad")
+ivc.add_output("r_cp", r_cp, units="inch")
+ivc.add_output("r", r, units="inch")
+
+spline_comp = make_component(DiffBSplineComp(nelems=nelems, ncp=ncp))
+prob.model.add_subsystem("spline_comp", spline_comp, promotes=["*"])
+
+prob.setup()
 prob.run_model()
-prob.check_partials(compact_print=true, method="cs")
+prob.check_partials(compact_print=true, method="fd")

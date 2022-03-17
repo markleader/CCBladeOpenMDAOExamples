@@ -7,10 +7,11 @@ from openmdao.utils.spline_distributions import cell_centered
 from julia.OpenMDAO import make_component
 
 from ccblade_openmdao_examples.ccblade_openmdao_component import BEMTRotorCAComp
+from ccblade_openmdao_examples.gxbeam_openmdao_component import DiffBSplineComp
 from ccblade_openmdao_examples.structural_group import StructuralGroup
 
 
-def get_problem(use_ks=True, sf=4.0, use_theta_dv=True, use_omega_dv=False):
+def get_problem(sf=1.0, use_curvature_constraint=False, use_theta_dv=True, use_omega_dv=False):
 
     B = 3  # Number of blades.
     D = 24.0*0.0254  # Diameter in inches.
@@ -51,7 +52,7 @@ def get_problem(use_ks=True, sf=4.0, use_theta_dv=True, use_omega_dv=False):
     omega_upper = speedofsound/Rtip
 
     # Get the initial blade geometry.
-    num_cp = 12
+    num_cp = 8
     radii_cp0 = np.linspace(Rhub, Rtip, num_cp)
     chord_cp0 = c*np.ones(num_cp)
     theta_cp0 = np.arctan(P/(np.pi*D*radii_cp0/Rtip))
@@ -75,18 +76,22 @@ def get_problem(use_ks=True, sf=4.0, use_theta_dv=True, use_omega_dv=False):
     ivc.add_output("collective", val=0.0, units="rad")
     prob.model.add_subsystem("ivc", ivc, promotes_outputs=["*"])
 
-    prob.model.add_subsystem("exec_comp", om.ExecComp("total_theta_cp=theta_cp+collective", total_theta_cp=theta_cp0, theta_cp=theta_cp0, collective=0.0), promotes=["*"])
+    prob.model.add_subsystem("exec_comp", om.ExecComp("total_theta_cp=theta_cp+collective", total_theta_cp=theta_cp0, theta_cp=theta_cp0, collective=0.0, units="rad"), promotes=["*"])
 
     x_cp = np.linspace(0.0, 1.0, num_cp)
     x_interp = cell_centered(nelems, 0.0, 1.0)
     interp_options = {"delta_x": 0.1}
     comp = om.SplineComp(method="akima", interp_options=interp_options, x_cp_val=x_cp, x_interp_val=x_interp)
     comp.add_spline(y_cp_name="radii_cp", y_interp_name="radii", y_units="m")
-    comp.add_spline(y_cp_name="chord_cp", y_interp_name="chord", y_units="m")
-    comp.add_spline(y_cp_name="total_theta_cp", y_interp_name="theta", y_units="rad")
     prob.model.add_subsystem("akima_comp", comp,
-                             promotes_inputs=["radii_cp", "chord_cp", "total_theta_cp"],
-                             promotes_outputs=["radii", "chord", "theta"])
+                             promotes_inputs=["radii_cp"],
+                             promotes_outputs=["radii"])
+
+    spline_comp = make_component(DiffBSplineComp(ncp=num_cp, nelems=nelems))
+    prob.model.add_subsystem("spline_comp", spline_comp,
+                             promotes_inputs=["radii_cp", "chord_cp", "radii"],
+                             promotes_outputs=["chord", "theta", "d2c_dr2", "d2t_dr2"])
+    prob.model.connect("total_theta_cp", "spline_comp.theta_cp")
 
     af_fname = "../data/xf-n0012-il-500000.dat"
     comp = make_component(
@@ -100,13 +105,6 @@ def get_problem(use_ks=True, sf=4.0, use_theta_dv=True, use_omega_dv=False):
     prob.model.add_subsystem("structural_group", struc_group,
                              promotes_inputs=["omega", "Tp", "Np", "chord", "theta"],
                              promotes_outputs=["sigma_vm", "m"])
-
-    # Aggregate the stress
-    if use_ks and sf > 0.0:
-        prob.model.add_subsystem("ks", om.KSComp(width=nelems*num_stress_eval_points*2,
-                                                add_constraint=False, ref=1.0,
-                                                units=None))
-        prob.model.connect("sigma_vm", "ks.g")
 
     # Set the optimizer
     prob.model.linear_solver = om.DirectSolver()
@@ -127,17 +125,18 @@ def get_problem(use_ks=True, sf=4.0, use_theta_dv=True, use_omega_dv=False):
     prob.model.add_constraint("thrust", lower=thrust_target, upper=thrust_target, units="N", ref=1e2)
 
     if sf > 0.0:
-        if use_ks:
-            prob.model.add_constraint("ks.KS", upper=1.0/sf)
-        else:
-            prob.model.add_constraint("sigma_vm", upper=1.0/sf)
+        prob.model.add_constraint("sigma_vm", upper=1.0/sf)
+
+    if use_curvature_constraint:
+        prob.model.add_constraint("d2c_dr2", upper=0.0)
+        #prob.model.add_constraint("d2t_dr2", lower=0.0)
 
     prob.setup(check=True)
     om.n2(prob, show_browser=False, outfile='struc_aero_opt.html')
 
     return prob
 
-def run_optimization(use_ks=False, sf=4.0, use_theta_dv=True, use_omega_dv=False):
+def run_optimization(sf=1.0, use_curvature_constraint=False, use_theta_dv=True, use_omega_dv=False):
     # Run the coupled aero-structural optimization problem and plot the outputs
 
     if use_omega_dv and use_theta_dv:
@@ -157,21 +156,19 @@ def run_optimization(use_ks=False, sf=4.0, use_theta_dv=True, use_omega_dv=False
         force_fname = "aero_forces_using_chord_sf_{0:.1f}.csv".format(sf)
         stress_fname = "stress_using_chord_sf_{0:.1f}.csv".format(sf)
 
-    p = get_problem(use_ks=use_ks, sf=sf, use_theta_dv=use_theta_dv, use_omega_dv=use_omega_dv)
+    p = get_problem(sf=sf, use_curvature_constraint=use_curvature_constraint, use_theta_dv=use_theta_dv, use_omega_dv=use_omega_dv)
     p.run_driver()
 
     xe = p.get_val("radii", units="inch")[0]
     print("mass = ", p.get_val("m", units="kg"))
-    if use_ks:
-        print("KS(sigma)/sigma_y = ", p.get_val("ks.KS"))
     print("max(sigma) = ", np.amax(p.get_val("sigma_vm")))
     print("efficiency = ", p.get_val("efficiency"))
     print("omega = ", p.get_val("omega"))
     print("collective = ", p.get_val("collective")[0]*(180.0/np.pi))
 
     # Save the chord and twist distribution to a csv
-    chord = p.get_val("chord", units="inch")[0]
-    theta = p.get_val("theta", units="deg")[0]
+    chord = p.get_val("chord", units="inch")
+    theta = p.get_val("theta", units="deg")
     df = pd.DataFrame({"chord":chord, "theta":theta})
     df.to_csv(dv_fname, index=False)
 
@@ -307,4 +304,4 @@ def plot_extras(p, xe, Tp, Np):
 
 if __name__ == "__main__":
 
-    run_optimization(use_ks=False, sf=4.0, use_theta_dv=True, use_omega_dv=True)
+    run_optimization(sf=1.0, use_curvature_constraint=False, use_theta_dv=True, use_omega_dv=False)

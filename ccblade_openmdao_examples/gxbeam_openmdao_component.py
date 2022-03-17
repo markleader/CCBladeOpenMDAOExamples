@@ -11,3 +11,4 @@ SolverComp = Main.SolverComp
 StressComp = Main.StressComp
 VonMisesComp = Main.VonMisesComp
 MassComp = Main.MassComp
+DiffBSplineComp = Main.DiffBSplineComp
