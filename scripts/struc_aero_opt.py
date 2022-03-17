@@ -10,6 +10,7 @@ from ccblade_openmdao_examples.ccblade_openmdao_component import BEMTRotorCAComp
 from ccblade_openmdao_examples.gxbeam_openmdao_component import DiffBSplineComp
 from ccblade_openmdao_examples.structural_group import StructuralGroup
 
+# TODO: add displacement output
 
 def get_problem(sf=1.0, use_curvature_constraint=False, use_theta_dv=True, use_omega_dv=False):
 
@@ -78,15 +79,6 @@ def get_problem(sf=1.0, use_curvature_constraint=False, use_theta_dv=True, use_o
 
     prob.model.add_subsystem("exec_comp", om.ExecComp("total_theta_cp=theta_cp+collective", total_theta_cp=theta_cp0, theta_cp=theta_cp0, collective=0.0, units="rad"), promotes=["*"])
 
-    # x_cp = np.linspace(0.0, 1.0, num_cp)
-    # x_interp = cell_centered(nelems, 0.0, 1.0)
-    # interp_options = {"delta_x": 0.1}
-    # comp = om.SplineComp(method="akima", interp_options=interp_options, x_cp_val=x_cp, x_interp_val=x_interp)
-    # comp.add_spline(y_cp_name="radii_cp", y_interp_name="radii", y_units="m")
-    # prob.model.add_subsystem("akima_comp", comp,
-    #                          promotes_inputs=["radii_cp"],
-    #                          promotes_outputs=["radii"])
-
     spline_comp = make_component(DiffBSplineComp(ncp=num_cp, nelems=nelems))
     prob.model.add_subsystem("spline_comp", spline_comp,
                              promotes_inputs=["radii_cp", "chord_cp"],
@@ -108,15 +100,17 @@ def get_problem(sf=1.0, use_curvature_constraint=False, use_theta_dv=True, use_o
 
     # Set the optimizer
     prob.model.linear_solver = om.DirectSolver()
-    prob.driver = om.pyOptSparseDriver(optimizer="SNOPT")
-    # prob.driver = om.ScipyOptimizeDriver(debug_print=["objs", "nl_cons"], maxiter=200)
-    # prob.driver.options["optimizer"] = "SLSQP"
+    #prob.driver = om.pyOptSparseDriver(optimizer="SNOPT")
+    prob.driver = om.ScipyOptimizeDriver(maxiter=200)
+    prob.driver.options["optimizer"] = "SLSQP"
 
     # Define the optimization problem
-    prob.model.add_design_var("chord_cp", lower=chord_lower, upper=chord_upper, ref=1e-2)
+    prob.model.add_design_var("chord_cp", ref=1e-2)#, lower=chord_lower, upper=chord_upper, ref=1e-2)
+    prob.model.add_constraint("chord", lower=chord_lower, upper=chord_upper, ref=1e-2)
 
     if use_theta_dv:
-        prob.model.add_design_var("theta_cp", lower=theta_lower, upper=theta_upper, ref=1e0)
+        prob.model.add_design_var("theta_cp")#, lower=theta_lower, upper=theta_upper, ref=1e0)
+        prob.model.add_constraint("theta", lower=theta_lower, upper=theta_upper, ref=1e0)
     else:
         prob.model.add_design_var("collective", lower=theta_lower-np.amin(theta_cp0), upper=theta_upper-np.amax(theta_cp0), ref=1e0)
 
@@ -131,7 +125,8 @@ def get_problem(sf=1.0, use_curvature_constraint=False, use_theta_dv=True, use_o
 
     if use_curvature_constraint:
         prob.model.add_constraint("d2c_dr2", upper=0.0)
-        prob.model.add_constraint("d2t_dr2", lower=0.0)
+        if use_theta_dv:
+            prob.model.add_constraint("d2t_dr2", lower=0.0)
 
     prob.setup(check=True)
     om.n2(prob, show_browser=False, outfile='struc_aero_opt.html')
@@ -145,18 +140,22 @@ def run_optimization(sf=1.0, use_curvature_constraint=False, use_theta_dv=True, 
         dv_fname = "dvs_using_theta_omega_sf_{0:.1f}.csv".format(sf)
         force_fname = "aero_forces_using_theta_omega_sf_{0:.1f}.csv".format(sf)
         stress_fname = "stress_using_theta_omega_sf_{0:.1f}.csv".format(sf)
+        disp_fname = "disp_using_theta_omega_sf_{0:.1f}.csv".format(sf)
     elif use_omega_dv:
         dv_fname = "dvs_using_omega_sf_{0:.1f}.csv".format(sf)
         force_fname = "aero_forces_using_omega_sf_{0:.1f}.csv".format(sf)
         stress_fname = "stress_using_omega_sf_{0:.1f}.csv".format(sf)
+        disp_fname = "disp_using_omega_sf_{0:.1f}.csv".format(sf)
     elif use_theta_dv:
         dv_fname = "dvs_using_theta_sf_{0:.1f}.csv".format(sf)
         force_fname = "aero_forces_using_theta_sf_{0:.1f}.csv".format(sf)
         stress_fname = "stress_using_theta_sf_{0:.1f}.csv".format(sf)
+        disp_fname = "disp_using_theta_sf_{0:.1f}.csv".format(sf)
     else:
         dv_fname = "dvs_using_chord_sf_{0:.1f}.csv".format(sf)
         force_fname = "aero_forces_using_chord_sf_{0:.1f}.csv".format(sf)
         stress_fname = "stress_using_chord_sf_{0:.1f}.csv".format(sf)
+        disp_fname = "disp_using_chord_sf_{0:.1f}.csv".format(sf)
 
     p = get_problem(sf=sf, use_curvature_constraint=use_curvature_constraint, use_theta_dv=use_theta_dv, use_omega_dv=use_omega_dv)
     p.run_driver()
@@ -306,4 +305,4 @@ def plot_extras(p, xe, Tp, Np):
 
 if __name__ == "__main__":
 
-    run_optimization(sf=1.0, use_curvature_constraint=True, use_theta_dv=True, use_omega_dv=False)
+    run_optimization(sf=0.0, use_curvature_constraint=True, use_theta_dv=False, use_omega_dv=False)
