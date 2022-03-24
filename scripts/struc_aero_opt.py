@@ -49,7 +49,7 @@ def get_problem(sf=1.0, use_curvature_constraint=False, use_theta_dv=True, use_o
     thrust_target = 97.246
 
     # Lower and upper limits on omega, rad/sec.
-    omega_lower = 0.0
+    omega_lower = 0.25*omega
     omega_upper = speedofsound/Rtip
 
     # Get the initial blade geometry.
@@ -100,9 +100,9 @@ def get_problem(sf=1.0, use_curvature_constraint=False, use_theta_dv=True, use_o
 
     # Set the optimizer
     prob.model.linear_solver = om.DirectSolver()
-    #prob.driver = om.pyOptSparseDriver(optimizer="SNOPT")
-    prob.driver = om.ScipyOptimizeDriver(maxiter=200)
-    prob.driver.options["optimizer"] = "SLSQP"
+    prob.driver = om.pyOptSparseDriver(optimizer="SNOPT")
+    #prob.driver = om.ScipyOptimizeDriver(maxiter=200)
+    #prob.driver.options["optimizer"] = "SLSQP"
 
     # Define the optimization problem
     prob.model.add_design_var("chord_cp", ref=1e-2)#, lower=chord_lower, upper=chord_upper, ref=1e-2)
@@ -191,6 +191,14 @@ def run_optimization(sf=1.0, use_curvature_constraint=False, use_theta_dv=True, 
         sigma_x1[i] = np.amax(sigma1[2*i*num_stress_eval_points:2*(i+1)*num_stress_eval_points])
     df = pd.DataFrame({"sigma":sigma_x1})
     df.to_csv(stress_fname, index=False)
+
+    # Write out the displacement to a csv file
+    u1 = p.get_val("structural_group.u1", units="inch")
+    u2 = p.get_val("structural_group.u2", units="inch")
+    u3 = p.get_val("structural_group.u3", units="inch")
+    u = np.sqrt((u1**2) + (u2**2) + (u3**2))
+    df = pd.DataFrame({"u":u})
+    df.to_csv(disp_fname, index=False)
 
     return
 
@@ -305,4 +313,4 @@ def plot_extras(p, xe, Tp, Np):
 
 if __name__ == "__main__":
 
-    run_optimization(sf=0.0, use_curvature_constraint=True, use_theta_dv=False, use_omega_dv=False)
+    run_optimization(sf=4.0, use_curvature_constraint=True, use_theta_dv=True, use_omega_dv=True)

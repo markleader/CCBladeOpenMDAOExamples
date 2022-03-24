@@ -267,10 +267,10 @@ end
 
 # Get saved design values to pass in to the analysis
 #csv_name = "chord_theta_SNOPT_w_splines_no_ks_sf_4.0.csv"
-csv_name = "coupled_chord_theta_sf_0.0.csv"
-df = DataFrame(CSV.File(csv_name))
-chord = df[:, :chord]
-theta = df[:, :theta]
+#csv_name = "coupled_chord_theta_sf_0.0.csv"
+#df = DataFrame(CSV.File(csv_name))
+#chord = df[:, :chord]
+#theta = df[:, :theta]
 
-output_only(chord, theta; fname="coupled_chord_theta_sf_0")
-#run_analysis(linear=true, chord=chord, theta=theta, fname="aero_opt")
+#output_only(chord, theta; fname="coupled_chord_theta_sf_0")
+run_analysis(linear=true)

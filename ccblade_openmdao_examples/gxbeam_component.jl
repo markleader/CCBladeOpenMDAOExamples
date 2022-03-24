@@ -117,7 +117,6 @@ function SolverComp(; rho, E, nu, Rhub, span, nelems)
         Iyy = x[:Iyy]
         Izz = x[:Izz]
         Iyz = x[:Iyz]
-        #println(Iyy)
 
         xpts = zeros(T, nelems+1)
         xvals = collect(range(Rhub, span, length=nelems+1))
@@ -140,6 +139,12 @@ function SolverComp(; rho, E, nu, Rhub, span, nelems)
         state = AssemblyState(system, assembly; prescribed_conditions=bcs)
 
         # Put the outputs in the output array.
+        y[:u1] .= [state.elements[ielem].u[1] for ielem = 1:length(assembly.elements)]
+        y[:u2] .= [state.elements[ielem].u[2] for ielem = 1:length(assembly.elements)]
+        y[:u3] .= [state.elements[ielem].u[3] for ielem = 1:length(assembly.elements)]
+        y[:theta1] .= [state.elements[ielem].theta[1] for ielem = 1:length(assembly.elements)]
+        y[:theta2] .= [state.elements[ielem].theta[2] for ielem = 1:length(assembly.elements)]
+        y[:theta3] .= [state.elements[ielem].theta[3] for ielem = 1:length(assembly.elements)]
         y[:Fx] .= [state.elements[ielem].F[1] for ielem = 1:length(assembly.elements)]
         y[:My] .= [state.elements[ielem].M[2] for ielem = 1:length(assembly.elements)]
         y[:Mz] .= [state.elements[ielem].M[3] for ielem = 1:length(assembly.elements)]
@@ -154,6 +159,8 @@ function SolverComp(; rho, E, nu, Rhub, span, nelems)
         A=zeros(Float64, nelems), Iyy=zeros(Float64, nelems),
         Izz=zeros(Float64, nelems), Iyz=zeros(Float64, nelems))
     Y = ComponentArray(
+        u1=zeros(Float64, nelems), u2=zeros(Float64, nelems), u3=zeros(Float64, nelems),
+        theta1=zeros(Float64, nelems), theta2=zeros(Float64, nelems), theta3=zeros(Float64, nelems),
         Fx=zeros(Float64, nelems), My=zeros(Float64, nelems), Mz=zeros(Float64, nelems))
     J = Y.*X'
 
@@ -182,12 +189,78 @@ function OpenMDAO.setup(self::SolverComp)
 
     # Declare the OpenMDAO outputs.
     output_data = Vector{VarData}()
+    push!(output_data, VarData("u1", shape=nelems, units="m"))
+    push!(output_data, VarData("u2", shape=nelems, units="m"))
+    push!(output_data, VarData("u3", shape=nelems, units="m"))
+    push!(output_data, VarData("theta1", shape=nelems, units="rad"))
+    push!(output_data, VarData("theta2", shape=nelems, units="rad"))
+    push!(output_data, VarData("theta3", shape=nelems, units="rad"))
     push!(output_data, VarData("Fx", shape=nelems, units="N"))
     push!(output_data, VarData("My", shape=nelems, units="N*m"))
     push!(output_data, VarData("Mz", shape=nelems, units="N*m"))
 
     # Declare the OpenMDAO partial derivatives.
     partials_data = Vector{PartialsData}()
+
+    push!(partials_data, PartialsData("u1", "omega"))
+    push!(partials_data, PartialsData("u1", "Tp"))
+    push!(partials_data, PartialsData("u1", "Np"))
+    push!(partials_data, PartialsData("u1", "chord"))
+    push!(partials_data, PartialsData("u1", "theta"))
+    push!(partials_data, PartialsData("u1", "A"))
+    push!(partials_data, PartialsData("u1", "Iyy"))
+    push!(partials_data, PartialsData("u1", "Izz"))
+    push!(partials_data, PartialsData("u1", "Iyz"))
+
+    push!(partials_data, PartialsData("u2", "omega"))
+    push!(partials_data, PartialsData("u2", "Tp"))
+    push!(partials_data, PartialsData("u2", "Np"))
+    push!(partials_data, PartialsData("u2", "chord"))
+    push!(partials_data, PartialsData("u2", "theta"))
+    push!(partials_data, PartialsData("u2", "A"))
+    push!(partials_data, PartialsData("u2", "Iyy"))
+    push!(partials_data, PartialsData("u2", "Izz"))
+    push!(partials_data, PartialsData("u2", "Iyz"))
+
+    push!(partials_data, PartialsData("u3", "omega"))
+    push!(partials_data, PartialsData("u3", "Tp"))
+    push!(partials_data, PartialsData("u3", "Np"))
+    push!(partials_data, PartialsData("u3", "chord"))
+    push!(partials_data, PartialsData("u3", "theta"))
+    push!(partials_data, PartialsData("u3", "A"))
+    push!(partials_data, PartialsData("u3", "Iyy"))
+    push!(partials_data, PartialsData("u3", "Izz"))
+    push!(partials_data, PartialsData("u3", "Iyz"))
+
+    push!(partials_data, PartialsData("theta1", "omega"))
+    push!(partials_data, PartialsData("theta1", "Tp"))
+    push!(partials_data, PartialsData("theta1", "Np"))
+    push!(partials_data, PartialsData("theta1", "chord"))
+    push!(partials_data, PartialsData("theta1", "theta"))
+    push!(partials_data, PartialsData("theta1", "A"))
+    push!(partials_data, PartialsData("theta1", "Iyy"))
+    push!(partials_data, PartialsData("theta1", "Izz"))
+    push!(partials_data, PartialsData("theta1", "Iyz"))
+
+    push!(partials_data, PartialsData("theta2", "omega"))
+    push!(partials_data, PartialsData("theta2", "Tp"))
+    push!(partials_data, PartialsData("theta2", "Np"))
+    push!(partials_data, PartialsData("theta2", "chord"))
+    push!(partials_data, PartialsData("theta2", "theta"))
+    push!(partials_data, PartialsData("theta2", "A"))
+    push!(partials_data, PartialsData("theta2", "Iyy"))
+    push!(partials_data, PartialsData("theta2", "Izz"))
+    push!(partials_data, PartialsData("theta2", "Iyz"))
+
+    push!(partials_data, PartialsData("theta3", "omega"))
+    push!(partials_data, PartialsData("theta3", "Tp"))
+    push!(partials_data, PartialsData("theta3", "Np"))
+    push!(partials_data, PartialsData("theta3", "chord"))
+    push!(partials_data, PartialsData("theta3", "theta"))
+    push!(partials_data, PartialsData("theta3", "A"))
+    push!(partials_data, PartialsData("theta3", "Iyy"))
+    push!(partials_data, PartialsData("theta3", "Izz"))
+    push!(partials_data, PartialsData("theta3", "Iyz"))
 
     push!(partials_data, PartialsData("Fx", "omega"))
     push!(partials_data, PartialsData("Fx", "A"))
@@ -231,6 +304,12 @@ function OpenMDAO.compute!(self::SolverComp, inputs, outputs)
     Iyz = inputs["Iyz"]
 
     # Unpack the outputs.
+    u1 = outputs["u1"]
+    u2 = outputs["u2"]
+    u3 = outputs["u3"]
+    theta1 = outputs["theta1"]
+    theta2 = outputs["theta2"]
+    theta3 = outputs["theta3"]
     Fx = outputs["Fx"]
     My = outputs["My"]
     Mz = outputs["Mz"]
@@ -260,6 +339,12 @@ function OpenMDAO.compute!(self::SolverComp, inputs, outputs)
     )
     state = AssemblyState(system, assembly; prescribed_conditions=bcs)
 
+    u1 .= [state.elements[ielem].u[1] for ielem = 1:length(assembly.elements)]
+    u2 .= [state.elements[ielem].u[2] for ielem = 1:length(assembly.elements)]
+    u3 .= [state.elements[ielem].u[3] for ielem = 1:length(assembly.elements)]
+    theta1 .= [state.elements[ielem].theta[1] for ielem = 1:length(assembly.elements)]
+    theta2 .= [state.elements[ielem].theta[2] for ielem = 1:length(assembly.elements)]
+    theta3 .= [state.elements[ielem].theta[3] for ielem = 1:length(assembly.elements)]
     Fx .= [state.elements[ielem].F[1] for ielem = 1:length(assembly.elements)]
     My .= [state.elements[ielem].M[2] for ielem = 1:length(assembly.elements)]
     Mz .= [state.elements[ielem].M[3] for ielem = 1:length(assembly.elements)]
@@ -298,6 +383,66 @@ function OpenMDAO.compute_partials!(self::SolverComp, inputs, partials)
     x[:Iyz] .= Iyz
 
     # Reshape the partials
+    du1_domega = partials["u1", "omega"]
+    du1_dTp = partials["u1", "Tp"]
+    du1_dNp = partials["u1", "Np"]
+    du1_dchord = partials["u1", "chord"]
+    du1_dtheta = partials["u1", "theta"]
+    du1_dA = partials["u1", "A"]
+    du1_dIyy = partials["u1", "Iyy"]
+    du1_dIzz = partials["u1", "Izz"]
+    du1_dIyz = partials["u1", "Iyz"]
+
+    du2_domega = partials["u2", "omega"]
+    du2_dTp = partials["u2", "Tp"]
+    du2_dNp = partials["u2", "Np"]
+    du2_dchord = partials["u2", "chord"]
+    du2_dtheta = partials["u2", "theta"]
+    du2_dA = partials["u2", "A"]
+    du2_dIyy = partials["u2", "Iyy"]
+    du2_dIzz = partials["u2", "Izz"]
+    du2_dIyz = partials["u2", "Iyz"]
+
+    du3_domega = partials["u3", "omega"]
+    du3_dTp = partials["u3", "Tp"]
+    du3_dNp = partials["u3", "Np"]
+    du3_dchord = partials["u3", "chord"]
+    du3_dtheta = partials["u3", "theta"]
+    du3_dA = partials["u3", "A"]
+    du3_dIyy = partials["u3", "Iyy"]
+    du3_dIzz = partials["u3", "Izz"]
+    du3_dIyz = partials["u3", "Iyz"]
+
+    dtheta1_domega = partials["theta1", "omega"]
+    dtheta1_dTp = partials["theta1", "Tp"]
+    dtheta1_dNp = partials["theta1", "Np"]
+    dtheta1_dchord = partials["theta1", "chord"]
+    dtheta1_dtheta = partials["theta1", "theta"]
+    dtheta1_dA = partials["theta1", "A"]
+    dtheta1_dIyy = partials["theta1", "Iyy"]
+    dtheta1_dIzz = partials["theta1", "Izz"]
+    dtheta1_dIyz = partials["theta1", "Iyz"]
+
+    dtheta2_domega = partials["theta2", "omega"]
+    dtheta2_dTp = partials["theta2", "Tp"]
+    dtheta2_dNp = partials["theta2", "Np"]
+    dtheta2_dchord = partials["theta2", "chord"]
+    dtheta2_dtheta = partials["theta2", "theta"]
+    dtheta2_dA = partials["theta2", "A"]
+    dtheta2_dIyy = partials["theta2", "Iyy"]
+    dtheta2_dIzz = partials["theta2", "Izz"]
+    dtheta2_dIyz = partials["theta2", "Iyz"]
+
+    dtheta3_domega = partials["theta3", "omega"]
+    dtheta3_dTp = partials["theta3", "Tp"]
+    dtheta3_dNp = partials["theta3", "Np"]
+    dtheta3_dchord = partials["theta3", "chord"]
+    dtheta3_dtheta = partials["theta3", "theta"]
+    dtheta3_dA = partials["theta3", "A"]
+    dtheta3_dIyy = partials["theta3", "Iyy"]
+    dtheta3_dIzz = partials["theta3", "Izz"]
+    dtheta3_dIyz = partials["theta3", "Iyz"]
+
     dFx_domega = partials["Fx", "omega"]
     dFx_dA = partials["Fx", "A"]
 
@@ -323,6 +468,66 @@ function OpenMDAO.compute_partials!(self::SolverComp, inputs, partials)
 
     # Get the Jacobian.
     ForwardDiff.jacobian!(J, self.apply_nonlinear_forwarddiffable!, y, x, config)
+
+    du1_domega .= J[:u1, :omega]
+    du1_dTp .= J[:u1, :Tp]
+    du1_dNp .= J[:u1, :Np]
+    du1_dA .= J[:u1, :A]
+    du1_dchord .= J[:u1, :chord]
+    du1_dtheta .= J[:u1, :theta]
+    du1_dIyy .= J[:u1, :Iyy]
+    du1_dIzz .= J[:u1, :Izz]
+    du1_dIyz .= J[:u1, :Iyz]
+
+    du2_domega .= J[:u2, :omega]
+    du2_dTp .= J[:u2, :Tp]
+    du2_dNp .= J[:u2, :Np]
+    du2_dA .= J[:u2, :A]
+    du2_dchord .= J[:u2, :chord]
+    du2_dtheta .= J[:u2, :theta]
+    du2_dIyy .= J[:u2, :Iyy]
+    du2_dIzz .= J[:u2, :Izz]
+    du2_dIyz .= J[:u2, :Iyz]
+
+    du3_domega .= J[:u3, :omega]
+    du3_dTp .= J[:u3, :Tp]
+    du3_dNp .= J[:u3, :Np]
+    du3_dA .= J[:u3, :A]
+    du3_dchord .= J[:u3, :chord]
+    du3_dtheta .= J[:u3, :theta]
+    du3_dIyy .= J[:u3, :Iyy]
+    du3_dIzz .= J[:u3, :Izz]
+    du3_dIyz .= J[:u3, :Iyz]
+
+    dtheta1_domega .= J[:theta1, :omega]
+    dtheta1_dTp .= J[:theta1, :Tp]
+    dtheta1_dNp .= J[:theta1, :Np]
+    dtheta1_dA .= J[:theta1, :A]
+    dtheta1_dchord .= J[:theta1, :chord]
+    dtheta1_dtheta .= J[:theta1, :theta]
+    dtheta1_dIyy .= J[:theta1, :Iyy]
+    dtheta1_dIzz .= J[:theta1, :Izz]
+    dtheta1_dIyz .= J[:theta1, :Iyz]
+
+    dtheta2_domega .= J[:theta2, :omega]
+    dtheta2_dTp .= J[:theta2, :Tp]
+    dtheta2_dNp .= J[:theta2, :Np]
+    dtheta2_dA .= J[:theta2, :A]
+    dtheta2_dchord .= J[:theta2, :chord]
+    dtheta2_dtheta .= J[:theta2, :theta]
+    dtheta2_dIyy .= J[:theta2, :Iyy]
+    dtheta2_dIzz .= J[:theta2, :Izz]
+    dtheta2_dIyz .= J[:theta2, :Iyz]
+
+    dtheta3_domega .= J[:theta3, :omega]
+    dtheta3_dTp .= J[:theta3, :Tp]
+    dtheta3_dNp .= J[:theta3, :Np]
+    dtheta3_dA .= J[:theta3, :A]
+    dtheta3_dchord .= J[:theta3, :chord]
+    dtheta3_dtheta .= J[:theta3, :theta]
+    dtheta3_dIyy .= J[:theta3, :Iyy]
+    dtheta3_dIzz .= J[:theta3, :Izz]
+    dtheta3_dIyz .= J[:theta3, :Iyz]
 
     dFx_domega .= J[:Fx, :omega]
     dFx_dA .= J[:Fx, :A]
