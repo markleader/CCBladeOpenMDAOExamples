@@ -514,7 +514,7 @@ Plot displacement distribution
 
 
 
-# Plot the stress distribution for use_twist=False, use_RPM=False:
+# Plot the displacement distribution for use_twist=False, use_RPM=False:
 fig = plt.figure(figsize=(8,4), constrained_layout=True)
 ax = plt.subplot()
 
@@ -538,7 +538,7 @@ ax.legend()
 
 plt.savefig("displacement_sf_compare.png", transparent=False, dpi=300)
 
-# Plot the stress distribution for use_twist=False, use_RPM=True:
+# Plot the displacement distribution for use_twist=False, use_RPM=True:
 fig = plt.figure(figsize=(8,4), constrained_layout=True)
 ax = plt.subplot()
 
@@ -564,7 +564,7 @@ ax.legend()
 
 plt.savefig("displacement_omega_sf_compare.png", transparent=False, dpi=300)
 
-# Plot the stress distribution for use_twist=True, use_RPM=False:
+# Plot the displacement distribution for use_twist=True, use_RPM=False:
 fig = plt.figure(figsize=(8,4), constrained_layout=True)
 ax = plt.subplot()
 
@@ -591,7 +591,7 @@ ax.legend()
 
 plt.savefig("displacement_theta_sf_compare.png", transparent=False, dpi=300)
 
-# Plot the stress distribution for use_twist=True, use_RPM=True:
+# Plot the displacement distribution for use_twist=True, use_RPM=True:
 fig = plt.figure(figsize=(8,4), constrained_layout=True)
 ax = plt.subplot()
 
