@@ -1,9 +1,217 @@
 using DataFrames
 using CSV
+using Plots
 
 using GXBeam, LinearAlgebra
 using CCBladeLoadingExample
 
+
+function run_frequency_analysis(; chord=nothing, theta=nothing, omega=nothing, Np=nothing, Tp=nothing)
+
+    # Compute the aerodynamic forces and set up the element discretization
+    xe_a, Np0, Tp0 = CCBladeLoadingExample.run_ccblade()
+
+    if (Np == nothing) & (Tp == nothing)
+        nelems_aero = length(xe_a)
+    elseif Np == nothing
+        nelems_aero = length(Tp)
+    else
+        nelems_aero = length(Np)
+    end
+
+    if Np == nothing
+        Np = Np0
+    end
+    if Tp == nothing
+        Tp = Tp0
+    end
+
+    if (chord == nothing) & (theta == nothing)
+        nelems = length(xe_a)
+    elseif chord == nothing
+        nelems = length(theta)
+    else
+        nelems = length(chord)
+    end
+
+    span = 12.0*0.0254
+    Rhub = 0.2*span
+    xvals = collect(range(Rhub, span, length=nelems+1))
+    xvals_aero = collect(range(Rhub, span, length=nelems_aero+1))
+
+    # Initialize the design variables
+    if chord == nothing
+        chord = 1.0*0.0254*ones(nelems)  # (inch)
+    end
+    if theta == nothing
+        theta = (40.0*pi/180.0)*ones(nelems)  # (rad)
+    end
+
+    # Define the angular rotation
+    if omega == nothing
+        rpm = 7200.0
+        omega = rpm*2*pi/60
+    end
+
+    # Define the reference area properties
+    A_ref = 821.8
+    Iyy_ref = 23543.4
+    Izz_ref = 5100.8
+
+    # Compute the area properties
+    s = sin.(theta)
+    c = cos.(theta)
+    s2 = sin.(theta).^2
+    c2 = cos.(theta).^2
+
+    k = chord/100  # scale factor
+    A = (k.^2)*A_ref
+    Iyy0 = (k.^4)*Iyy_ref
+    Izz0 = (k.^4)*Izz_ref
+    Iyy = @. c2 *Iyy0 + s2 *Izz0
+    Izz = @. s2 *Iyy0 + c2 *Izz0
+    Iyz = @. (Izz0 - Iyy0)*s*c
+
+    # Solve the finite element problem
+    rho = 2780.0
+    E = 72.4e9
+    nu = 0.33
+    ys = 345e6
+
+    xpts = zeros(nelems+1)
+    for i = 1:nelems+1
+        xpts[i] = xvals[i]
+    end
+
+    ypts = zero(xpts)
+    zpts = zero(xpts)
+    points = [[xpts[i], ypts[i], zpts[i]] for i = 1:nelems+1]
+
+    assembly, system = create_assembly(points=points, x_aero=xvals_aero, omega=omega,
+                                       Tp=Tp, Np=Np, chord=chord, theta=theta,
+                                       A=A, Iyy=Iyy, Izz=Izz, Iyz=Iyz,
+                                       rho=rho, E=E, nu=nu)
+
+    # set prescribed conditions (fixed left endpoint)
+    bcs = Dict(
+        1 => PrescribedConditions(ux=0.0, uy=0.0, uz=0.0, theta_x=0.0, theta_y=0.0, theta_z=0.0)
+    )
+
+    function interp_aero_force(x, radii, f_aero)
+        # Linearly interpolate the aerodynamic loads
+        # x: coordinate where we want to evaluate the force
+        # radii: x locations of nodes
+        # f_aero: vector with aero forces
+
+        if x < radii[1] || x >= radii[end]  # x not in range of radii
+            q = 0
+        elseif x == radii[1]
+            q = f_aero[1]
+        else
+            k = findfirst(radii .>= x)
+            j = k - 1
+            q = f_aero[j]
+        end
+
+        return q
+    end
+
+    # define distributed loads
+    distributed_loads = Dict()
+    for i = 1:nelems
+        distributed_loads[2*i-1] = DistributedLoads(assembly, i; s1=xvals_aero[i], s2=xvals_aero[i+1], fy = (s) -> interp_aero_force(s, xpts, Np))
+        distributed_loads[2*i] = DistributedLoads(assembly, i; s1=xvals_aero[i], s2=xvals_aero[i+1], fz = (s) -> interp_aero_force(s, xpts, Tp))
+    end
+
+    system, λ, V, converged = eigenvalue_analysis!(system, assembly;
+            prescribed_conditions=bcs,
+            distributed_loads=distributed_loads,
+            angular_velocity=[0.0, omega, 0.0],
+            nev=6)
+    println(imag(λ))
+    println("eigenvalue analysis converged: ", converged)
+
+end
+
+
+function compare_linear_nonlinear(xe; chord=nothing, theta=nothing, Np=nothing, Tp=nothing)
+
+    state, assembly = run_analysis(linear=true, chord=chord, theta=theta, Np=Np, Tp=Tp)
+    Fx = [state.elements[ielem].F[1] for ielem = 1:length(assembly.elements)]
+    My = [state.elements[ielem].M[2] for ielem = 1:length(assembly.elements)]
+    Mz = [state.elements[ielem].M[3] for ielem = 1:length(assembly.elements)]
+    ux = [state.elements[ielem].u[1] for ielem = 1:length(assembly.elements)]./0.0254
+    uy = [state.elements[ielem].u[2] for ielem = 1:length(assembly.elements)]./0.0254
+    uz = [state.elements[ielem].u[3] for ielem = 1:length(assembly.elements)]./0.0254
+
+    state_nl, assembly = run_analysis(linear=false, chord=chord, theta=theta, Np=Np, Tp=Tp)
+    Fx_nl = [state_nl.elements[ielem].F[1] for ielem = 1:length(assembly.elements)]
+    My_nl = [state_nl.elements[ielem].M[2] for ielem = 1:length(assembly.elements)]
+    Mz_nl = [state_nl.elements[ielem].M[3] for ielem = 1:length(assembly.elements)]
+    ux_nl = [state_nl.elements[ielem].u[1] for ielem = 1:length(assembly.elements)]./0.0254
+    uy_nl = [state_nl.elements[ielem].u[2] for ielem = 1:length(assembly.elements)]./0.0254
+    uz_nl = [state_nl.elements[ielem].u[3] for ielem = 1:length(assembly.elements)]./0.0254
+
+    l = @layout [a ; b; c]
+    p1 = plot(xe, Fx,
+              xlim = (xe[1], xe[length(xe)]),
+              xticks = 0.0:1.0:xe[length(xe)],
+              xlabel = "x (in)",
+              ylabel = "Fx (N)",
+              grid = false,
+              label="Linear")
+    plot!(xe, Fx_nl, label="Nonlinear")
+    p2 = plot(xe, My,
+              xlim = (xe[1], xe[length(xe)]),
+              xticks = 0.0:1.0:xe[length(xe)],
+              xlabel = "x (in)",
+              ylabel = "My (N-m)",
+              grid = false,
+              label="Linear")
+    plot!(xe, My_nl, label="Nonlinear")
+    p3 = plot(xe, Mz,
+              xlim = (xe[1], xe[length(xe)]),
+              xticks = 0.0:1.0:xe[length(xe)],
+              xlabel = "x (in)",
+              ylabel = "Mz (N-m)",
+              grid = false,
+              label="Linear")
+    plot!(xe, Mz_nl, label="Nonlinear")
+    plot(p1, p2, p3, layout=l, legend=true)
+
+    savefig("nonlinear_force_compare.pdf")
+
+    l = @layout [a ; b; c]
+    p1 = plot(xe, ux,
+              xlim = (xe[1], xe[length(xe)]),
+              xticks = 0.0:1.0:xe[length(xe)],
+              xlabel = "x (in)",
+              ylabel = "ux (in)",
+              grid = false,
+              label="Linear")
+    plot!(xe, ux_nl, label="Nonlinear")
+    p2 = plot(xe, uy,
+              xlim = (xe[1], xe[length(xe)]),
+              xticks = 0.0:1.0:xe[length(xe)],
+              xlabel = "x (in)",
+              ylabel = "uy (in)",
+              grid = false,
+              label="Linear")
+    plot!(xe, uy_nl, label="Nonlinear")
+    p3 = plot(xe, uz,
+              xlim = (xe[1], xe[length(xe)]),
+              xticks = 0.0:1.0:xe[length(xe)],
+              xlabel = "x (in)",
+              ylabel = "uz (in)",
+              grid = false,
+              label="Linear")
+    plot!(xe, uz_nl, label="Nonlinear")
+    plot(p1, p2, p3, layout=l, legend=true)
+
+    savefig("nonlinear_disp_compare.pdf")
+
+    return
+end
 
 function NACA0012(z)
     # For relative chord dimension z in [0, 1], return the +/- relative
@@ -14,7 +222,7 @@ function NACA0012(z)
     return y[1], -1 .*y[1]
 end
 
-function create_assembly(; points, Tp, Np, omega, chord, theta, A, Iyy, Izz, Iyz, rho, E, nu, linear=true)
+function create_assembly(; points, x_aero, Tp, Np, omega, chord, theta, A, Iyy, Izz, Iyz, rho, E, nu, linear=true)
 
     x = [points[i, 1][1] for i = 1:length(points)]
     nelems = length(points)-1
@@ -85,14 +293,15 @@ function create_assembly(; points, Tp, Np, omega, chord, theta, A, Iyy, Izz, Iyz
     # define distributed loads
     distributed_loads = Dict()
     for i = 1:nelems
-        distributed_loads[2*i-1] = DistributedLoads(assembly, i; s1=x[i], s2=x[i+1], fy = (s) -> interp_aero_force(s, x, Np))
-        distributed_loads[2*i] = DistributedLoads(assembly, i; s1=x[i], s2=x[i+1], fz = (s) -> interp_aero_force(s, x, Tp))
+        distributed_loads[2*i-1] = DistributedLoads(assembly, i; s1=x_aero[i], s2=x_aero[i+1], fy = (s) -> interp_aero_force(s, x, Np))
+        distributed_loads[2*i] = DistributedLoads(assembly, i; s1=x_aero[i], s2=x_aero[i+1], fz = (s) -> interp_aero_force(s, x, Tp))
     end
 
     system, converged = steady_state_analysis(assembly;
         prescribed_conditions=bcs,
         distributed_loads=distributed_loads,
         angular_velocity=[0.0, omega, 0.0], linear=linear)
+    println("converged: ", converged)
 
     return assembly, system
 end
@@ -132,15 +341,40 @@ function output_only(chord, theta; fname="prop")
     return
 end
 
-function run_analysis(;linear=true, chord=nothing, theta=nothing, fname="prop")
+function run_analysis(;linear=true, chord=nothing, theta=nothing, omega=nothing, Np=nothing, Tp=nothing, fname="prop")
 
     # Compute the aerodynamic forces and set up the element discretization
-    x, Np, Tp = CCBladeLoadingExample.run_ccblade()
-    nelems = length(x)
+    xe_a, Np0, Tp0 = CCBladeLoadingExample.run_ccblade()
 
-    # Initialize the design variables
+    if (Np == nothing) & (Tp == nothing)
+        nelems_aero = length(xe_a)
+    elseif Np == nothing
+        nelems_aero = length(Tp)
+    else
+        nelems_aero = length(Np)
+    end
+
+    if Np == nothing
+        Np = Np0
+    end
+    if Tp == nothing
+        Tp = Tp0
+    end
+
+    if (chord == nothing) & (theta == nothing)
+        nelems = length(xe_a)
+    elseif chord == nothing
+        nelems = length(theta)
+    else
+        nelems = length(chord)
+    end
+
     span = 12.0*0.0254
     Rhub = 0.2*span
+    xvals = collect(range(Rhub, span, length=nelems+1))
+    xvals_aero = collect(range(Rhub, span, length=nelems_aero+1))
+
+    # Initialize the design variables
     if chord == nothing
         chord = 1.0*0.0254*ones(nelems)  # (inch)
     end
@@ -149,10 +383,10 @@ function run_analysis(;linear=true, chord=nothing, theta=nothing, fname="prop")
     end
 
     # Define the angular rotation
-    rpm = 7110.0
-    omega = rpm*2*pi/60
-
-    #Tp = zero(Tp)
+    if omega == nothing
+        rpm = 7200.0
+        omega = rpm*2*pi/60
+    end
 
     # Define the reference area properties
     A_ref = 821.8
@@ -180,7 +414,6 @@ function run_analysis(;linear=true, chord=nothing, theta=nothing, fname="prop")
     ys = 345e6
 
     xpts = zeros(nelems+1)
-    xvals = collect(range(Rhub, span, length=nelems+1))
     for i = 1:nelems+1
         xpts[i] = xvals[i]
     end
@@ -189,10 +422,10 @@ function run_analysis(;linear=true, chord=nothing, theta=nothing, fname="prop")
     zpts = zero(xpts)
     points = [[xpts[i], ypts[i], zpts[i]] for i = 1:nelems+1]
 
-    assembly, system = create_assembly(points=points, omega=omega,
+    assembly, system = create_assembly(points=points, x_aero=xvals_aero, omega=omega,
                                        Tp=Tp, Np=Np, chord=chord, theta=theta,
                                        A=A, Iyy=Iyy, Izz=Izz, Iyz=Iyz,
-                                       rho=rho, E=E, nu=nu)
+                                       rho=rho, E=E, nu=nu, linear=linear)
 
     bcs = Dict(
         1 => PrescribedConditions(ux=0, uy=0, uz=0, theta_x=0, theta_y=0, theta_z=0)
@@ -207,7 +440,7 @@ function run_analysis(;linear=true, chord=nothing, theta=nothing, fname="prop")
 
     write_output(assembly, state; points=points, chord=chord, theta=theta, fname=fname)
 
-    return
+    return state, assembly
 end
 
 function write_output(assembly, state; points, chord, theta, fname="prop", scaling=5.0)
@@ -266,11 +499,26 @@ function write_output(assembly, state; points, chord, theta, fname="prop", scali
 end
 
 # Get saved design values to pass in to the analysis
-#csv_name = "chord_theta_SNOPT_w_splines_no_ks_sf_4.0.csv"
-#csv_name = "coupled_chord_theta_sf_0.0.csv"
-#df = DataFrame(CSV.File(csv_name))
-#chord = df[:, :chord]
-#theta = df[:, :theta]
+csv_name = "dvs_using_theta_sf_4.0.csv"
+df = DataFrame(CSV.File(csv_name))
+chord = 0.0254*df[:, :chord]
+theta = df[:, :theta]
+
+# Get saved aero forces to pass in to the analysis
+csv_name = "aero_forces_using_theta_sf_4.0.csv"
+df = DataFrame(CSV.File(csv_name))
+Np = df[:, :Np]
+Tp = df[:, :Tp]
 
 #output_only(chord, theta; fname="coupled_chord_theta_sf_0")
-run_analysis(linear=true)
+#run_analysis(linear=true)
+
+# Define the element spacing
+nelems = length(chord)
+span = 12.0
+Rhub = 0.2*span
+dx = (span-Rhub)/nelems
+xe = collect(range(Rhub+0.5*dx, span-0.5*dx, length=nelems))
+
+#compare_linear_nonlinear(xe; chord=chord, theta=theta, Np=Np, Tp=Tp)
+run_frequency_analysis(chord=chord, theta=theta, Np=Np, Tp=Tp)
