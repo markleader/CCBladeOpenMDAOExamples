@@ -3,16 +3,14 @@ import pandas as pd
 import matplotlib.pyplot as plt
 
 import openmdao.api as om
-from openmdao.utils.spline_distributions import cell_centered
 from julia.OpenMDAO import make_component
 
 from ccblade_openmdao_examples.ccblade_openmdao_component import BEMTRotorCAComp
 from ccblade_openmdao_examples.gxbeam_openmdao_component import DiffBSplineComp
 from ccblade_openmdao_examples.structural_group import StructuralGroup
 
-# TODO: add displacement output
 
-def get_problem(sf=1.0, use_curvature_constraint=False, use_theta_dv=True, use_omega_dv=False):
+def get_problem(sf=1.0, use_curvature_constraint=False, use_theta_dv=True, use_omega_dv=False, nonlinear=False):
 
     B = 3  # Number of blades.
     D = 24.0*0.0254  # Diameter in inches.
@@ -63,6 +61,12 @@ def get_problem(sf=1.0, use_curvature_constraint=False, use_theta_dv=True, use_o
     num_stress_eval_points = 20
     nelems = num_radial
 
+    # Define the nodal coordinates of the finite element mesh
+    x0 = np.linspace(Rhub, Rtip, nelems+1)
+    u1_dv = np.zeros(nelems+1)
+    u2_dv = np.zeros(nelems+1)
+    u3_dv = np.zeros(nelems+1)
+
     prob = om.Problem()
 
     ivc = om.IndepVarComp()
@@ -75,9 +79,14 @@ def get_problem(sf=1.0, use_curvature_constraint=False, use_theta_dv=True, use_o
     ivc.add_output("omega", val=omega, shape=num_operating_points, units="rad/s")
     ivc.add_output("pitch", val=pitch, shape=num_operating_points, units="rad")
     ivc.add_output("collective", val=0.0, units="rad")
+    ivc.add_output("x0", val=x0, units="m")
+    ivc.add_output("u1_dv", val=u1_dv, units="m")
+    ivc.add_output("u2_dv", val=u2_dv, units="m")
+    ivc.add_output("u3_dv", val=u3_dv, units="m")
     prob.model.add_subsystem("ivc", ivc, promotes_outputs=["*"])
 
-    prob.model.add_subsystem("exec_comp", om.ExecComp("total_theta_cp=theta_cp+collective", total_theta_cp=theta_cp0, theta_cp=theta_cp0, collective=0.0, units="rad"), promotes=["*"])
+    prob.model.add_subsystem("theta_adder", om.ExecComp("total_theta_cp=theta_cp+collective", total_theta_cp=theta_cp0, theta_cp=theta_cp0, collective=0.0, units="rad"), promotes=["*"])
+    prob.model.add_subsystem("x_adder", om.ExecComp("xvals=x0+u1_dv", xvals=x0, x0=x0, u1_dv=u1_dv, units="m"), promotes=["*"])
 
     spline_comp = make_component(DiffBSplineComp(ncp=num_cp, nelems=nelems))
     prob.model.add_subsystem("spline_comp", spline_comp,
@@ -96,7 +105,15 @@ def get_problem(sf=1.0, use_curvature_constraint=False, use_theta_dv=True, use_o
     struc_group = StructuralGroup(nelems=nelems, num_stress_eval_points=num_stress_eval_points)
     prob.model.add_subsystem("structural_group", struc_group,
                              promotes_inputs=["omega", "Tp", "Np", "chord", "theta"],
-                             promotes_outputs=["sigma_vm", "m"])
+                             promotes_outputs=["sigma_vm", "m", "u1", "u2", "u3"])
+
+    prob.model.connect("xvals", "structural_group.xvals")
+    prob.model.connect("u2_dv", "structural_group.yvals")
+    prob.model.connect("u3_dv", "structural_group.zvals")
+    if nonlinear:
+        prob.model.add_subsystem("u1_con", om.ExecComp("u1_eq=u1_dv-u1", u1_eq=u1_dv, u1_dv=u1_dv, u1=np.zeros(nelems+1)), promotes=["*"])
+        prob.model.add_subsystem("u2_con", om.ExecComp("u2_eq=u2_dv-u2", u2_eq=u2_dv, u2_dv=u2_dv, u2=np.zeros(nelems+1)), promotes=["*"])
+        prob.model.add_subsystem("u3_con", om.ExecComp("u3_eq=u3_dv-u3", u3_eq=u3_dv, u3_dv=u3_dv, u3=np.zeros(nelems+1)), promotes=["*"])
 
     # Set the optimizer
     prob.model.linear_solver = om.DirectSolver()
@@ -128,12 +145,17 @@ def get_problem(sf=1.0, use_curvature_constraint=False, use_theta_dv=True, use_o
         if use_theta_dv:
             prob.model.add_constraint("d2t_dr2", lower=0.0)
 
+    if nonlinear:
+        prob.model.add_constraint("u1_eq", lower=0.0, upper=0.0, ref=1e-3)
+        prob.model.add_constraint("u2_eq", lower=0.0, upper=0.0, ref=1e-3)
+        prob.model.add_constraint("u3_eq", lower=0.0, upper=0.0, ref=1e-3)
+
     prob.setup(check=True)
     om.n2(prob, show_browser=False, outfile='struc_aero_opt.html')
 
     return prob
 
-def run_optimization(sf=1.0, use_curvature_constraint=False, use_theta_dv=True, use_omega_dv=False):
+def run_optimization(sf=1.0, use_curvature_constraint=False, use_theta_dv=True, use_omega_dv=False, nonlinear=False):
     # Run the coupled aero-structural optimization problem and plot the outputs
 
     if use_omega_dv and use_theta_dv:
@@ -157,7 +179,7 @@ def run_optimization(sf=1.0, use_curvature_constraint=False, use_theta_dv=True, 
         stress_fname = "stress_using_chord_sf_{0:.1f}.csv".format(sf)
         disp_fname = "disp_using_chord_sf_{0:.1f}.csv".format(sf)
 
-    p = get_problem(sf=sf, use_curvature_constraint=use_curvature_constraint, use_theta_dv=use_theta_dv, use_omega_dv=use_omega_dv)
+    p = get_problem(sf=sf, use_curvature_constraint=use_curvature_constraint, use_theta_dv=use_theta_dv, use_omega_dv=use_omega_dv, nonlinear=nonlinear)
     p.run_driver()
 
     xe = p.get_val("radii", units="inch")
@@ -193,10 +215,10 @@ def run_optimization(sf=1.0, use_curvature_constraint=False, use_theta_dv=True, 
     df.to_csv(stress_fname, index=False)
 
     # Write out the displacement to a csv file
-    u1 = p.get_val("structural_group.u1", units="inch")
-    u2 = p.get_val("structural_group.u2", units="inch")
-    u3 = p.get_val("structural_group.u3", units="inch")
-    u = np.sqrt((u1**2) + (u2**2) + (u3**2))
+    u1e = p.get_val("structural_group.u1e", units="inch")
+    u2e = p.get_val("structural_group.u2e", units="inch")
+    u3e = p.get_val("structural_group.u3e", units="inch")
+    u = np.sqrt((u1e**2) + (u2e**2) + (u3e**2))
     df = pd.DataFrame({"u":u})
     df.to_csv(disp_fname, index=False)
 
@@ -313,4 +335,4 @@ def plot_extras(p, xe, Tp, Np):
 
 if __name__ == "__main__":
 
-    run_optimization(sf=4.0, use_curvature_constraint=True, use_theta_dv=True, use_omega_dv=True)
+    run_optimization(sf=2.0, use_curvature_constraint=True, use_theta_dv=True, use_omega_dv=True, nonlinear=True)

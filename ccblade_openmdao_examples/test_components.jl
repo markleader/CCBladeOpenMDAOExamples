@@ -63,8 +63,10 @@ prob = om.Problem()
 
 span = 0.3
 Rhub = 0.2*span
-omega = 7110.0*2*pi/60
-xe = collect(range(Rhub, span, length=nelems))
+omega = 7200.0*2*pi/60
+xvals = collect(range(Rhub, span, length=nelems+1))
+yvals = zeros(nelems+1)
+zvals = zeros(nelems+1)
 Tp = collect(range(10.0, 50.0, length=nelems))
 Np = collect(range(10.0, 200.0, length=nelems))
 
@@ -91,9 +93,12 @@ ivc.add_output("A", A, units="m**2")
 ivc.add_output("Iyy", Iyy, units="m**4")
 ivc.add_output("Izz", Izz, units="m**4")
 ivc.add_output("Iyz", Iyz, units="m**4")
+ivc.add_output("xvals", xvals, units="m")
+ivc.add_output("yvals", yvals, units="m")
+ivc.add_output("zvals", zvals, units="m")
 prob.model.add_subsystem("ivc", ivc, promotes=["*"])
 
-solver_comp = make_component(SolverComp(rho=2780.0, E=72.4e9, nu=0.33, Rhub=Rhub, span=span, nelems=nelems))
+solver_comp = make_component(NLSolverComp(rho=2780.0, E=72.4e9, nu=0.33, Rhub=Rhub, span=span, nelems=nelems))
 prob.model.add_subsystem("solver_comp", solver_comp, promotes=["*"])
 
 prob.setup(force_alloc_complex=true)
@@ -109,8 +114,8 @@ prob = om.Problem()
 ivc = om.IndepVarComp()
 ivc.add_output("A", A, units="m**2")
 
-solver_comp = make_component(MassComp(rho=2600.0, span=span, nelems=nelems))
-prob.model.add_subsystem("mass_comp", solver_comp, promotes=["*"])
+mass_comp = make_component(MassComp(rho=2600.0, span=span, nelems=nelems))
+prob.model.add_subsystem("mass_comp", mass_comp, promotes=["*"])
 
 # prob.setup(force_alloc_complex=true)
 # prob.run_model()
@@ -152,6 +157,6 @@ ivc.add_output("r_cp", r_cp, units="inch")
 spline_comp = make_component(DiffBSplineComp(nelems=nelems, ncp=ncp))
 prob.model.add_subsystem("spline_comp", spline_comp, promotes=["*"])
 
-prob.setup()
-prob.run_model()
-prob.check_partials(compact_print=true, method="fd")
+# prob.setup()
+# prob.run_model()
+# prob.check_partials(compact_print=true, method="fd")

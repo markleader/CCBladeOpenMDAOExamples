@@ -271,7 +271,7 @@ ax7.spines["bottom"].set_position(("data", xax_pos))
 ax7.set_xticks(xtick_vals)
 ax7.grid(True)
 
-ax7.set_xlabel(r'$x_1$ (in)', fontsize=ax_label_fs)
+ax7.set_xlabel('x (in.)', fontsize=ax_label_fs)
 ax7.set_ylabel('Twist (deg.)', fontsize=ax_label_fs)
 
 # Plot twist for use_twist=True, use_RPM=True:
@@ -293,7 +293,7 @@ ax8.grid(True)
 for label in ax8.get_yticklabels():
     label.set_visible(False)
 
-ax8.set_xlabel(r'$x_1$ (in)', fontsize=ax_label_fs)
+ax8.set_xlabel('x (in.)', fontsize=ax_label_fs)
 
 plt.subplots_adjust(hspace=0.175, wspace=0.075)
 
@@ -497,7 +497,7 @@ ax7.spines["bottom"].set_position(("data", xax_pos))
 ax7.set_xticks(xtick_vals)
 ax7.grid(True)
 
-ax7.set_xlabel(r'$x_1$ (in)', fontsize=ax_label_fs)
+ax7.set_xlabel('x (in.)', fontsize=ax_label_fs)
 ax7.set_ylabel('Transverse force (N/m)', fontsize=ax_label_fs)
 
 # Plot Tp for use_twist=True, use_RPM=True:
@@ -519,7 +519,7 @@ ax8.grid(True)
 for label in ax8.get_yticklabels():
     label.set_visible(False)
 
-ax8.set_xlabel(r'$x_1$ (in)', fontsize=ax_label_fs)
+ax8.set_xlabel('x (in.)', fontsize=ax_label_fs)
 
 plt.subplots_adjust(hspace=0.175, wspace=0.075)
 
@@ -656,7 +656,7 @@ ax4.spines["left"].set_position(("data", yax_pos))
 ax4.spines["bottom"].set_position(("data", xax_pos))
 ax4.grid(True)
 
-ax4.set_xlabel(r'$x_1$ (in)', fontsize=ax_label_fs)
+ax4.set_xlabel('x (in.)', fontsize=ax_label_fs)
 ax4.set_ylabel(r"$\sigma_{vM}(x)/\sigma_y$", fontsize=ax_label_fs)
 
 plt.subplots_adjust(hspace=0.175)
@@ -731,7 +731,7 @@ ax1.grid(True)
 for label in ax1.get_xticklabels():
     label.set_visible(False)
 
-ax1.set_ylabel("Displacement (in)", fontsize=ax_label_fs)
+ax1.set_ylabel("Displacement (in.)", fontsize=ax_label_fs)
 
 # Plot displacement for use_twist=False, use_RPM=True:
 ax2 = plt.subplot(4, 1, 2, xlim=(xlower, xupper), ylim=(disp_lower, disp_upper), xticks=xtick_vals, yticks=ytick_vals, sharex=ax1)
@@ -752,7 +752,7 @@ ax2.grid(True)
 for label in ax2.get_xticklabels():
     label.set_visible(False)
 
-ax2.set_ylabel("Displacement (in)", fontsize=ax_label_fs)
+ax2.set_ylabel("Displacement (in.)", fontsize=ax_label_fs)
 
 # Plot displacement for use_twist=True, use_RPM=False:
 ax3 = plt.subplot(4, 1, 3, xlim=(xlower, xupper), ylim=(disp_lower, disp_upper), xticks=xtick_vals, yticks=ytick_vals, sharex=ax1)
@@ -774,7 +774,7 @@ ax3.grid(True)
 for label in ax3.get_xticklabels():
     label.set_visible(False)
 
-ax3.set_ylabel("Displacement (in)", fontsize=ax_label_fs)
+ax3.set_ylabel("Displacement (in.)", fontsize=ax_label_fs)
 
 # Plot displacement for use_twist=True, use_RPM=True:
 ax4 = plt.subplot(4, 1, 4, xlim=(xlower, xupper), ylim=(disp_lower, disp_upper), xticks=xtick_vals, yticks=ytick_vals, sharex=ax1)
@@ -792,8 +792,8 @@ ax4.spines["left"].set_position(("data", yax_pos))
 ax4.spines["bottom"].set_position(("data", xax_pos))
 ax4.grid(True)
 
-ax4.set_xlabel(r'$x_1$ (in)', fontsize=ax_label_fs)
-ax4.set_ylabel("Displacement (in)", fontsize=ax_label_fs)
+ax4.set_xlabel('x (in.)', fontsize=ax_label_fs)
+ax4.set_ylabel("Displacement (in.)", fontsize=ax_label_fs)
 
 plt.subplots_adjust(hspace=0.175)
 

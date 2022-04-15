@@ -60,7 +60,7 @@ class StructuralGroup(om.Group):
         self.add_subsystem(name="solver_comp",
                            subsys=solver_comp,
                            promotes_inputs=["*"],
-                           promotes_outputs=["u1", "u2", "u3"])
+                           promotes_outputs=["u1", "u2", "u3", "u1e", "u2e", "u3e"])
 
         self.add_subsystem(name="stress_comp",
                            subsys=stress_comp,
