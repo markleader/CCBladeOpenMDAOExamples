@@ -1,9 +1,117 @@
 using DataFrames
 using CSV
 using Plots
+using KrylovKit
+using LinearMaps
 
 using GXBeam, LinearAlgebra
 using CCBladeLoadingExample
+
+
+function gram_schmidt(V, j)
+    # Using the Gram-Schmidt algorithm, construct a new basis vector
+    # orthogonal to each of the first j columns of V
+
+    n = size(V, 1)
+
+    # Make an initial guess of the vector, using a sine function for no reason
+    x = collect(range(0.0, pi, length=n))
+    v = sin.(x)
+    u = v
+    println(v)
+    println(V[:, 1])
+    for i in 1:j
+        u -= V[:, i]*dot(V[:, i], v)/dot(V[:, i], V[:, i])
+        println(u)
+    end
+
+    return u/norm(u)
+end
+
+function lanczos(A, m)
+    # Lanczos algorithm to compute the m lowest eigenvalues of matrix A
+
+    n = size(A, 1)
+    T = zeros((m, m))
+    V = zeros((n, m))
+
+    # Initialize the first vector
+    v = collect(range(0.0, 1.0, length=n))
+    v = v/norm(v)
+    V[:, 1] .= v
+
+    # Compute the first step
+    w = A*v
+    a = dot(w, v)
+    w = w - a*v
+    T[1, 1] = a
+    for j in 2:m
+        # Compute b and store in in T
+        b = norm(w)
+        T[j, j-1] = b
+        T[j-1, j] = b
+
+        # Compute the new v
+        if abs(b) > 1e-8
+            v = w/b
+        else
+            println("using gram schmidt")
+            v = gram_schmidt(V, j-1)
+        end
+        V[:, j] .= v
+
+        # Compute the update to w
+        w = A*v
+        a = dot(w, v)
+        w = w - a*v - b*V[:, j-1]
+
+        # Add the new a to T
+        T[j, j] = a
+    end
+
+    display(T)
+    F = eigvals(T)
+
+    return F
+end
+
+
+function arnoldi(A, m, sigma=1.0)
+    # Find the m smallest eigenvalues of A using the Arnoldi algorithm
+
+    M = inv(A + sigma*I)
+
+    n = size(A, 1)
+    b = collect(range(0.0, 1.0, length=n))
+    b /= norm(b)
+
+    eps = 1e-10
+    h = zeros((m+1, m))
+    Q = zeros((n, m+1))
+
+    Q[:, 1] = b/norm(b)
+    for k in 2:m+1
+        v = A*Q[:, k-1]
+        for j in 1:k
+            h[j, k-1] = dot(Q[:, j], v)
+            v = v - h[j, k-1] * Q[:, j]
+        end
+
+        h[k, k-1] = norm(v)
+        if h[k, k-1] > eps
+            Q[:, k] = v/h[k, k-1]
+        else
+            H = Q'*A*Q
+            y = eigvals(H)
+            return y
+        end
+    end
+
+    H = Q'*A*Q
+    y = eigvals(H)
+
+    return y
+end
 
 
 function run_frequency_analysis(; chord=nothing, theta=nothing, omega=nothing, Np=nothing, Tp=nothing)
@@ -123,13 +231,65 @@ function run_frequency_analysis(; chord=nothing, theta=nothing, omega=nothing, N
         distributed_loads[2*i] = DistributedLoads(assembly, i; s1=xvals_aero[i], s2=xvals_aero[i+1], fz = (s) -> interp_aero_force(s, xpts, Tp))
     end
 
-    system, λ, V, converged = eigenvalue_analysis!(system, assembly;
-            prescribed_conditions=bcs,
-            distributed_loads=distributed_loads,
-            angular_velocity=[0.0, omega, 0.0],
-            nev=6)
-    println(imag(λ))
-    println("eigenvalue analysis converged: ", converged)
+    # system, λ, V, converged = eigenvalue_analysis!(system, assembly;
+    #         prescribed_conditions=bcs,
+    #         distributed_loads=distributed_loads,
+    #         angular_velocity=[0.0, omega, 0.0],
+    #         nev=6)
+    # println(imag(λ))
+    # println("eigenvalue analysis converged: ", converged)
+
+    K = system.K
+    M = system.M
+    x = system.x
+
+    # unpack scaling parameter
+    force_scaling = system.force_scaling
+
+    # also unpack system indices
+    irow_point = system.irow_point
+    irow_elem = system.irow_elem
+    irow_elem1 = system.irow_elem1
+    irow_elem2 = system.irow_elem2
+    icol_point = system.icol_point
+    icol_elem = system.icol_elem
+
+    # current time
+    t = system.t
+
+    # current parameters
+    pcond = bcs
+    dload = distributed_loads
+    pmass = Dict{Int,PointMass{Float64}}()  #typeof(point_masses) <: AbstractDict ? point_masses : point_masses(t)
+    gvec = [0.0, 0.0, 0.0]  #typeof(gravity) <: AbstractVector ? SVector{3}(gravity) : SVector{3}(gravity(tvec[it]))
+    x0 = [0.0, 0.0, 0.0]  #typeof(origin) <: AbstractVector ? SVector{3}(origin) : SVector{3}(origin(t))
+    v0 = [0.0, 0.0, 0.0]  #typeof(linear_velocity) <: AbstractVector ? SVector{3}(linear_velocity) : SVector{3}(linear_velocity(t))
+    ω0 = [0.0, omega, 0.0]  #typeof(angular_velocity) <: AbstractVector ? SVector{3}(angular_velocity) : SVector{3}(angular_velocity(t))
+    a0 = [0.0, 0.0, 0.0]  #typeof(linear_acceleration) <: AbstractVector ? SVector{3}(linear_acceleration) : SVector{3}(linear_acceleration(t))
+    α0 = [0.0, 0.0, 0.0]  #typeof(angular_acceleration) <: AbstractVector ? SVector{3}(angular_acceleration) : SVector{3}(angular_acceleration(t))
+
+    # solve for the system stiffness matrix
+    K = GXBeam.steady_state_system_jacobian!(K, x, assembly, pcond, dload, pmass, gvec, force_scaling,
+        irow_point, irow_elem, irow_elem1, irow_elem2, icol_point, icol_elem, x0, v0,
+        ω0, a0, α0)
+
+    # solve for the system mass matrix
+    M = GXBeam.system_mass_matrix!(M, x, assembly, pmass, force_scaling, irow_point,
+        irow_elem, irow_elem1, irow_elem2, icol_point, icol_elem)
+
+    # construct linear map
+    T = eltype(system)
+    nx = length(x)
+    Kfact = GXBeam.safe_lu(K)
+    f! = (b, x) -> ldiv!(b, Kfact, M * x)
+    fc! = (b, x) -> mul!(b, M', Kfact' \ x)
+    A = LinearMap{T}(f!, fc!, nx, nx; ismutating=true)
+
+    # # Solve the generalized eigenvalue problem
+    # vals, vecs, info = KrylovKit.geneigsolve((K, M), howmany=6)
+    vals, vecs, info = KrylovKit.eigsolve(A, x, howmany=6, which=:LM)
+    # println(vals)
+    # println(info)
 
 end
 
@@ -209,6 +369,45 @@ function compare_linear_nonlinear(xe; chord=nothing, theta=nothing, Np=nothing, 
     plot(p1, p2, p3, layout=l, legend=true)
 
     savefig("nonlinear_disp_compare.pdf")
+
+    return
+end
+
+function check_nonlinear(x, ux, uy, uz, chord, theta, Np, Tp; fname="nonlinear_disp_compare.pdf")
+
+    state_nl, assembly = run_analysis(linear=false, chord=chord, theta=theta, Np=Np, Tp=Tp)
+    ux_nl = [state_nl.points[inode].u[1] for inode = 1:length(assembly.points)]./0.0254
+    uy_nl = [state_nl.points[inode].u[2] for inode = 1:length(assembly.points)]./0.0254
+    uz_nl = [state_nl.points[inode].u[3] for inode = 1:length(assembly.points)]./0.0254
+
+    l = @layout [a ; b; c]
+    p1 = plot(x, ux,
+              xlim = (x[1], x[length(x)]),
+              xticks = x[1]:1.0:x[length(x)],
+              xlabel = "x (in)",
+              ylabel = "ux (in)",
+              grid = false,
+              label="Optimization")
+    plot!(x, ux_nl, label="Nonlinear analysis")
+    p2 = plot(x, uy,
+              xlim = (x[1], x[length(x)]),
+              xticks = x[1]:1.0:x[length(x)],
+              xlabel = "x (in)",
+              ylabel = "uy (in)",
+              grid = false,
+              label="Optimization")
+    plot!(x, uy_nl, label="Nonlinear analysis")
+    p3 = plot(x, uz,
+              xlim = (x[1], x[length(x)]),
+              xticks = x[1]:1.0:x[length(x)],
+              xlabel = "x (in)",
+              ylabel = "uz (in)",
+              grid = false,
+              label="Optimization")
+    plot!(x, uz_nl, label="Nonlinear analysis")
+    plot(p1, p2, p3, layout=l, legend=true)
+
+    savefig(fname)
 
     return
 end
@@ -498,27 +697,57 @@ function write_output(assembly, state; points, chord, theta, fname="prop", scali
     return nothing
 end
 
-# Get saved design values to pass in to the analysis
-csv_name = "dvs_using_theta_sf_4.0.csv"
-df = DataFrame(CSV.File(csv_name))
-chord = 0.0254*df[:, :chord]
-theta = df[:, :theta]
+# # Test Gram-Schmidt algorithm
+# V = [1.0 0.0 0.0; 0.0 1.0 0.0; 0.0 0.0 1.0; 0.0 0.0 0.0]
+# println(V)
+# v = gram_schmidt(V, 3)
+# println(v)
+# println(dot(v, V[:, 1]))
+# println(dot(v, V[:, 2]))
+# println(dot(v, V[:, 3]))
 
-# Get saved aero forces to pass in to the analysis
-csv_name = "aero_forces_using_theta_sf_4.0.csv"
-df = DataFrame(CSV.File(csv_name))
-Np = df[:, :Np]
-Tp = df[:, :Tp]
+# # Test eigenvalue solver
+# A = [5.0 1.0 0.0 0.0 0.0;
+#      0.0 3.0 1.0 0.0 -1.0;
+#      1.0 0.0 2.0 1.0 0.0;
+#      1.0 1.0 0.0 4.0 0.0;
+#      0.0 0.0 0.0 0.0 1.0]
+# F = eigvals(A)
+# println(F)
+# y = arnoldi(A, 2)
+# println(y)
 
-#output_only(chord, theta; fname="coupled_chord_theta_sf_0")
-#run_analysis(linear=true)
-
-# Define the element spacing
-nelems = length(chord)
-span = 12.0
-Rhub = 0.2*span
-dx = (span-Rhub)/nelems
-xe = collect(range(Rhub+0.5*dx, span-0.5*dx, length=nelems))
-
-#compare_linear_nonlinear(xe; chord=chord, theta=theta, Np=Np, Tp=Tp)
-run_frequency_analysis(chord=chord, theta=theta, Np=Np, Tp=Tp)
+# # Get saved design values to pass in to the analysis
+# csv_name = "nl_dvs_using_theta_sf_4.0.csv"
+# df = DataFrame(CSV.File(csv_name))
+# chord = 0.0254*df[:, :chord]
+# theta = df[:, :theta]
+#
+# # Get saved aero forces to pass in to the analysis
+# csv_name = "nl_aero_forces_using_theta_sf_4.0.csv"
+# df = DataFrame(CSV.File(csv_name))
+# Np = df[:, :Np]
+# Tp = df[:, :Tp]
+#
+# # Get saved displacements to check
+# csv_name = "nl_disp_using_theta_sf_4.0.csv"
+# df = DataFrame(CSV.File(csv_name))
+# x = df[:, :x0]
+# u1 = df[:, :u1]
+# u2 = df[:, :u2]
+# u3 = df[:, :u3]
+#
+# #output_only(chord, theta; fname="coupled_chord_theta_sf_0")
+# #run_analysis(linear=true)
+# check_nonlinear(x, u1, u2, u3, chord, theta, Np, Tp)
+#
+# # Define the element spacing
+# nelems = length(chord)
+# span = 12.0
+# Rhub = 0.2*span
+# dx = (span-Rhub)/nelems
+# xe = collect(range(Rhub+0.5*dx, span-0.5*dx, length=nelems))
+#
+# #compare_linear_nonlinear(xe; chord=chord, theta=theta, Np=Np, Tp=Tp)
+# #run_frequency_analysis(chord=chord, theta=theta, Np=Np, Tp=Tp)
+#
