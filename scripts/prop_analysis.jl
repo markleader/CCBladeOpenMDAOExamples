@@ -277,19 +277,21 @@ function run_frequency_analysis(; chord=nothing, theta=nothing, omega=nothing, N
     M = GXBeam.system_mass_matrix!(M, x, assembly, pmass, force_scaling, irow_point,
         irow_elem, irow_elem1, irow_elem2, icol_point, icol_elem)
 
-    # construct linear map
-    T = eltype(system)
-    nx = length(x)
-    Kfact = GXBeam.safe_lu(K)
-    f! = (b, x) -> ldiv!(b, Kfact, M * x)
-    fc! = (b, x) -> mul!(b, M', Kfact' \ x)
-    A = LinearMap{T}(f!, fc!, nx, nx; ismutating=true)
+    A = K*inv(M)
 
-    # # Solve the generalized eigenvalue problem
-    # vals, vecs, info = KrylovKit.geneigsolve((K, M), howmany=6)
-    vals, vecs, info = KrylovKit.eigsolve(A, x, howmany=6, which=:LM)
-    # println(vals)
-    # println(info)
+#     # construct linear map
+#     T = eltype(system)
+#     nx = length(x)
+#     Kfact = GXBeam.safe_lu(K)
+#     f! = (b, x) -> ldiv!(b, Kfact, M * x)
+#     fc! = (b, x) -> mul!(b, M', Kfact' \ x)
+#     A = LinearMap{T}(f!, fc!, nx, nx; ismutating=true)
+#
+#     # # Solve the generalized eigenvalue problem
+#     # vals, vecs, info = KrylovKit.geneigsolve((K, M), howmany=6)
+#     vals, vecs, info = KrylovKit.eigsolve(A, x, howmany=6, which=:LM)
+#     # println(vals)
+#     # println(info)
 
 end
 

@@ -57,7 +57,7 @@ prob.model.add_subsystem("stress_comp", stress_comp, promotes=["*"])
 # prob.run_model()
 # prob.check_partials(compact_print=true, method="cs")
 
-include("gxbeam_component.jl")
+include("gxbeam_freq_component.jl")
 
 prob = om.Problem()
 
@@ -98,12 +98,12 @@ ivc.add_output("yvals", yvals, units="m")
 ivc.add_output("zvals", zvals, units="m")
 prob.model.add_subsystem("ivc", ivc, promotes=["*"])
 
-solver_comp = make_component(NLSolverComp(rho=2780.0, E=72.4e9, nu=0.33, Rhub=Rhub, span=span, nelems=nelems))
+solver_comp = make_component(FrequencySolverComp(rho=2780.0, E=72.4e9, nu=0.33, Rhub=Rhub, span=span, nelems=nelems, nev=6))
 prob.model.add_subsystem("solver_comp", solver_comp, promotes=["*"])
 
-prob.setup(force_alloc_complex=true)
+prob.setup()#force_alloc_complex=true)
 prob.run_model()
-prob.check_partials(compact_print=true, method="cs")
+prob.check_partials(compact_print=true)#, method="cs")
 # prob.setup()
 # prob.run_model()
 # prob.check_partials(compact_print=true)

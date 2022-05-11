@@ -111,9 +111,9 @@ def get_problem(sf=1.0, use_curvature_constraint=False, use_theta_dv=True, use_o
     prob.model.connect("u2_dv", "structural_group.yvals")
     prob.model.connect("u3_dv", "structural_group.zvals")
     if nonlinear:
-        prob.model.add_subsystem("u1_con", om.ExecComp("u1_eq=u1_dv-u1", u1_eq=u1_dv, u1_dv=u1_dv, u1=np.zeros(nelems+1)), promotes=["*"])
-        prob.model.add_subsystem("u2_con", om.ExecComp("u2_eq=u2_dv-u2", u2_eq=u2_dv, u2_dv=u2_dv, u2=np.zeros(nelems+1)), promotes=["*"])
-        prob.model.add_subsystem("u3_con", om.ExecComp("u3_eq=u3_dv-u3", u3_eq=u3_dv, u3_dv=u3_dv, u3=np.zeros(nelems+1)), promotes=["*"])
+        prob.model.add_subsystem("u1_con", om.ExecComp("u1_eq=u1_dv-u1", u1_eq=u1_dv, u1_dv=u1_dv, u1=np.zeros(nelems+1), units="m"), promotes=["*"])
+        prob.model.add_subsystem("u2_con", om.ExecComp("u2_eq=u2_dv-u2", u2_eq=u2_dv, u2_dv=u2_dv, u2=np.zeros(nelems+1), units="m"), promotes=["*"])
+        prob.model.add_subsystem("u3_con", om.ExecComp("u3_eq=u3_dv-u3", u3_eq=u3_dv, u3_dv=u3_dv, u3=np.zeros(nelems+1), units="m"), promotes=["*"])
 
     # Set the optimizer
     prob.model.linear_solver = om.DirectSolver()
@@ -145,7 +145,10 @@ def get_problem(sf=1.0, use_curvature_constraint=False, use_theta_dv=True, use_o
         if use_theta_dv:
             prob.model.add_constraint("d2t_dr2", lower=0.0)
 
-    if nonlinear:
+    if nonlinear and sf > 0.0:
+        prob.model.add_design_var("u1_dv", ref=1e-3)
+        prob.model.add_design_var("u2_dv", ref=1e-3)
+        prob.model.add_design_var("u3_dv", ref=1e-3)
         prob.model.add_constraint("u1_eq", lower=0.0, upper=0.0, ref=1e-3)
         prob.model.add_constraint("u2_eq", lower=0.0, upper=0.0, ref=1e-3)
         prob.model.add_constraint("u3_eq", lower=0.0, upper=0.0, ref=1e-3)
@@ -160,40 +163,61 @@ def run_optimization(sf=1.0, use_curvature_constraint=False, use_theta_dv=True, 
 
     if use_omega_dv and use_theta_dv:
         dv_fname = "dvs_using_theta_omega_sf_{0:.1f}.csv".format(sf)
+        dv_cp_fname = "dvs_cp_using_theta_omega_sf_{0:.1f}.csv".format(sf)
         force_fname = "aero_forces_using_theta_omega_sf_{0:.1f}.csv".format(sf)
         stress_fname = "stress_using_theta_omega_sf_{0:.1f}.csv".format(sf)
         disp_fname = "disp_using_theta_omega_sf_{0:.1f}.csv".format(sf)
     elif use_omega_dv:
         dv_fname = "dvs_using_omega_sf_{0:.1f}.csv".format(sf)
+        dv_cp_fname = "dvs_cp_using_omega_sf_{0:.1f}.csv".format(sf)
         force_fname = "aero_forces_using_omega_sf_{0:.1f}.csv".format(sf)
         stress_fname = "stress_using_omega_sf_{0:.1f}.csv".format(sf)
         disp_fname = "disp_using_omega_sf_{0:.1f}.csv".format(sf)
     elif use_theta_dv:
         dv_fname = "dvs_using_theta_sf_{0:.1f}.csv".format(sf)
+        dv_cp_fname = "dvs_cp_using_theta_sf_{0:.1f}.csv".format(sf)
         force_fname = "aero_forces_using_theta_sf_{0:.1f}.csv".format(sf)
         stress_fname = "stress_using_theta_sf_{0:.1f}.csv".format(sf)
         disp_fname = "disp_using_theta_sf_{0:.1f}.csv".format(sf)
     else:
         dv_fname = "dvs_using_chord_sf_{0:.1f}.csv".format(sf)
+        dv_cp_fname = "dvs_cp_using_chord_sf_{0:.1f}.csv".format(sf)
         force_fname = "aero_forces_using_chord_sf_{0:.1f}.csv".format(sf)
         stress_fname = "stress_using_chord_sf_{0:.1f}.csv".format(sf)
         disp_fname = "disp_using_chord_sf_{0:.1f}.csv".format(sf)
+
+    if nonlinear:
+        dv_fname = "nl_" + dv_fname
+        dv_cp_fname = "nl_" + dv_cp_fname
+        force_fname = "nl_" + force_fname
+        stress_fname = "nl_" + stress_fname
+        disp_fname = "nl_" + disp_fname
 
     p = get_problem(sf=sf, use_curvature_constraint=use_curvature_constraint, use_theta_dv=use_theta_dv, use_omega_dv=use_omega_dv, nonlinear=nonlinear)
     p.run_driver()
 
     xe = p.get_val("radii", units="inch")
+    x_cp = p.get_val("radii_cp", units="inch")
     print("mass = ", p.get_val("m", units="kg"))
     print("max(sigma) = ", np.amax(p.get_val("sigma_vm")))
     print("efficiency = ", p.get_val("efficiency"))
     print("omega = ", p.get_val("omega"))
     print("collective = ", p.get_val("collective")[0]*(180.0/np.pi))
+    print("thrust_eq rel = ", (p.get_val("thrust")[0]-97.246)/97.246)
 
     # Save the chord and twist distribution to a csv
     chord = p.get_val("chord", units="inch")
     theta = p.get_val("theta", units="deg")
-    df = pd.DataFrame({"chord":chord, "theta":theta})
+    chord_cp = p.get_val("chord_cp", units="inch")
+    theta_cp = p.get_val("theta_cp", units="deg")
+    df = pd.DataFrame({"radii":xe,
+                       "chord":chord,
+                       "theta":theta})
     df.to_csv(dv_fname, index=False)
+    df = pd.DataFrame({"radii_cp":x_cp,
+                       "chord_cp":chord_cp,
+                       "theta_cp":theta_cp})
+    df.to_csv(dv_cp_fname, index=False)
 
     # Plot the chord and twist distribution
     plot_chord_theta(xe, chord, theta)
@@ -215,12 +239,26 @@ def run_optimization(sf=1.0, use_curvature_constraint=False, use_theta_dv=True, 
     df.to_csv(stress_fname, index=False)
 
     # Write out the displacement to a csv file
-    u1e = p.get_val("structural_group.u1e", units="inch")
-    u2e = p.get_val("structural_group.u2e", units="inch")
-    u3e = p.get_val("structural_group.u3e", units="inch")
-    u = np.sqrt((u1e**2) + (u2e**2) + (u3e**2))
-    df = pd.DataFrame({"u":u})
+    x0 = p.get_val("x0", units="inch")
+    u1 = p.get_val("u1", units="inch")
+    u2 = p.get_val("u2", units="inch")
+    u3 = p.get_val("u3", units="inch")
+    u1_dv = p.get_val("u1_dv", units="inch")
+    u2_dv = p.get_val("u2_dv", units="inch")
+    u3_dv = p.get_val("u3_dv", units="inch")
+    # u1e = p.get_val("structural_group.u1e", units="inch")
+    # u2e = p.get_val("structural_group.u2e", units="inch")
+    # u3e = p.get_val("structural_group.u3e", units="inch")
+    # ue = np.sqrt((u1e**2) + (u2e**2) + (u3e**2))
+    df = pd.DataFrame({"x0":x0, "u1":u1, "u2":u2, "u3":u3,
+                       "u1_dv":u1_dv, "u2_dv":u2_dv, "u3_dv":u3_dv})
     df.to_csv(disp_fname, index=False)
+
+    # Print the nonlinear displacement convergence
+    if nonlinear:
+        print("max rel u1 diff = ", np.amax(np.abs(u1_dv-u1)/(np.abs(u1)+1e-10)))
+        print("max rel u2 diff = ", np.amax(np.abs(u2_dv-u2)/(np.abs(u2)+1e-10)))
+        print("max rel u3 diff = ", np.amax(np.abs(u3_dv-u3)/(np.abs(u3)+1e-10)))
 
     return
 
@@ -335,4 +373,4 @@ def plot_extras(p, xe, Tp, Np):
 
 if __name__ == "__main__":
 
-    run_optimization(sf=2.0, use_curvature_constraint=True, use_theta_dv=True, use_omega_dv=True, nonlinear=True)
+    run_optimization(sf=4.0, use_curvature_constraint=True, use_theta_dv=True, use_omega_dv=True, nonlinear=True)
